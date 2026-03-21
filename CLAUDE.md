@@ -25,7 +25,7 @@ Four source files with clear separation of concerns:
 - **`src/types.ts`** — Interfaces: `Drug`, `MarketEvent`, `HealthEvent`, `StealEvent`, `Location`, `GameState`, `GameResponse`
 - **`src/game-data.ts`** — Static constants: 8 products (`DRUGS`), 18 market events, 12 health events, 7 steal events, 20 locations (10 subway + 10 surface), and game balance constants (40 days, 10% daily debt interest, 3500/hp hospital cost, etc.)
 - **`src/game-engine.ts`** — `GameEngine` class: stateful single-instance engine. Public API: `startGame`, `move`, `buy`, `sell`, `bankDeposit`, `bankWithdraw`, `repayDebt`, `hospital`, `rentHouse`, `getStatus`. Per-move sequence: generate prices → apply interest → trigger market events → record history → trigger health/steal events → check game-end
-- **`src/index.ts`** — MCP server entry point. Registers 9 tools (`start_game`, `move`, `buy`, `sell`, `bank`, `repay_debt`, `hospital`, `rent_house`, `get_status`) using `@modelcontextprotocol/sdk` with Zod parameter schemas. Transport: `StdioServerTransport`. McpServer includes `description` field that instructs AI to play autonomously.
+- **`src/index.ts`** — MCP server entry point. Registers 11 tools (`start_game`, `move`, `buy`, `sell`, `bank`, `repay_debt`, `hospital`, `rent_house`, `get_status`, `check_update`, `update_game`) using `@modelcontextprotocol/sdk` with Zod parameter schemas. Transport: `StdioServerTransport`. `check_update` and `update_game` use `child_process.execSync` to run git/npm commands for self-updating.
 
 ## Key Patterns
 

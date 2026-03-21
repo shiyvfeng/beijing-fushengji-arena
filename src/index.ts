@@ -3,8 +3,15 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
+import { execSync } from "child_process";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 import { GameEngine } from "./game-engine.js";
 import { DRUGS, LOCATIONS } from "./game-data.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const PROJECT_ROOT = resolve(__dirname, "..");
 
 const engine = new GameEngine();
 
@@ -121,6 +128,138 @@ server.tool(
   async () => {
     const res = engine.getStatus();
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  },
+);
+
+// ===== Tool: check_update =====
+server.tool(
+  "check_update",
+  "检查北京浮生记是否有新版本可用。比较本地版本和 GitHub 远程仓库的最新版本。",
+  {},
+  async () => {
+    try {
+      // fetch latest from remote
+      execSync("git fetch origin", { cwd: PROJECT_ROOT, stdio: "pipe", timeout: 30000 });
+
+      const localHead = execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+      const remoteHead = execSync("git rev-parse origin/main", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+
+      const localMsg = execSync("git log -1 --format=%s", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+      const localDate = execSync("git log -1 --format=%ci", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+
+      if (localHead === remoteHead) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              hasUpdate: false,
+              message: "当前已是最新版本，无需更新。",
+              localVersion: { commit: localHead.slice(0, 7), message: localMsg, date: localDate },
+            }, null, 2),
+          }],
+        };
+      }
+
+      const remoteMsg = execSync("git log -1 origin/main --format=%s", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+      const remoteDate = execSync("git log -1 origin/main --format=%ci", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+      const behindCount = execSync("git rev-list HEAD..origin/main --count", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            hasUpdate: true,
+            message: `发现新版本！当前落后远程 ${behindCount} 个提交。请调用 update_game 工具进行更新。`,
+            localVersion: { commit: localHead.slice(0, 7), message: localMsg, date: localDate },
+            remoteVersion: { commit: remoteHead.slice(0, 7), message: remoteMsg, date: remoteDate },
+            behindCommits: Number(behindCount),
+          }, null, 2),
+        }],
+      };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            hasUpdate: false,
+            message: `检查更新失败：${errMsg}`,
+          }, null, 2),
+        }],
+      };
+    }
+  },
+);
+
+// ===== Tool: update_game =====
+server.tool(
+  "update_game",
+  "更新北京浮生记到最新版本。执行 git pull、npm install、npm run build。更新完成后需要用户重启 gateway 才能生效。",
+  {},
+  async () => {
+    const steps: string[] = [];
+    try {
+      // Step 1: git pull
+      const pullOutput = execSync("git pull origin main", {
+        cwd: PROJECT_ROOT, encoding: "utf-8", stdio: "pipe", timeout: 60000,
+      }).trim();
+      steps.push(`✅ git pull: ${pullOutput}`);
+
+      if (pullOutput.includes("Already up to date")) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: "当前已是最新版本，无需更新。",
+              steps,
+              needRestart: false,
+            }, null, 2),
+          }],
+        };
+      }
+
+      // Step 2: npm install
+      const installOutput = execSync("npm install --omit=dev", {
+        cwd: PROJECT_ROOT, encoding: "utf-8", stdio: "pipe", timeout: 120000,
+      }).trim();
+      steps.push(`✅ npm install: 依赖安装完成`);
+
+      // Step 3: npm run build
+      execSync("npm run build", {
+        cwd: PROJECT_ROOT, encoding: "utf-8", stdio: "pipe", timeout: 60000,
+      });
+      steps.push(`✅ npm run build: 编译完成`);
+
+      const newCommit = execSync("git log -1 --format=%s", { cwd: PROJECT_ROOT, encoding: "utf-8" }).trim();
+
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: "更新成功！请运行 `openclaw gateway restart` 重启网关以加载新版本。",
+            steps,
+            latestCommit: newCommit,
+            needRestart: true,
+          }, null, 2),
+        }],
+      };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      steps.push(`❌ 失败: ${errMsg}`);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            message: `更新失败：${errMsg}`,
+            steps,
+            needRestart: false,
+          }, null, 2),
+        }],
+      };
+    }
   },
 );
 
