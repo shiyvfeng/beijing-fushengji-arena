@@ -63,7 +63,7 @@ export class GameEngine {
   private emptyState(): GameState {
     return {
       cash: 0, debt: 0, bank: 0, health: 0, fame: 0,
-      daysLeft: 0, totalDays: TOTAL_DAYS, capacity: INIT_CAPACITY,
+      currentDay: 0, daysLeft: 0, totalDays: TOTAL_DAYS, capacity: INIT_CAPACITY,
       currentLocation: -1, currentMap: "subway",
       inventory: new Array(DRUG_COUNT).fill(-1),
       market: new Array(DRUG_COUNT).fill(0),
@@ -156,6 +156,7 @@ export class GameEngine {
       s.health += 10;
       if (s.health > 100) s.health = 100;
       s.daysLeft -= delayDay;
+      s.currentDay += delayDay;
       events.push(`健康状况不佳，被迫住院${delayDay}天，医疗费${cost}元计入债务。(健康+10)`);
     }
 
@@ -277,6 +278,7 @@ export class GameEngine {
       bank: 0,
       health: INIT_HEALTH,
       fame: INIT_FAME,
+      currentDay: 0,
       daysLeft: TOTAL_DAYS,
       totalDays: TOTAL_DAYS,
       capacity: INIT_CAPACITY,
@@ -320,6 +322,7 @@ export class GameEngine {
     this.recordPriceHistory();
     this.doRandomEvent(events);
     s.daysLeft--;
+    s.currentDay++;
     this.checkGameEnd(events);
 
     return this.makeResponse(`到达${loc.name}。`, events);
@@ -478,7 +481,7 @@ export class GameEngine {
     const s = this.state;
     const total = this.getInventoryTotal();
     const lines: string[] = [
-      `=== 北京浮生记 (第${s.totalDays - s.daysLeft}/${s.totalDays}天) ===`,
+      `=== 北京浮生记 (第${s.currentDay}/${s.totalDays}天) ===`,
       `现金: ${s.cash}元 | 存款: ${s.bank}元 | 债务: ${s.debt}元`,
       `健康: ${s.health}/100 | 声望: ${s.fame} | 背包: ${total}/${s.capacity}`,
       `当前位置: ${s.currentLocation >= 0 ? LOCATIONS[s.currentLocation].name : "未选择"} (${s.currentMap === "subway" ? "地铁" : "地面"})`,

@@ -44,6 +44,7 @@ export interface GameState {
   bank: number;
   health: number;
   fame: number;
+  currentDay: number;    // 当前游戏天数（1=第1天，每次move+1）
   daysLeft: number;
   totalDays: number;
   capacity: number;     // 背包容量（100-140）
