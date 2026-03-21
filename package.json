@@ -1,0 +1,21 @@
+{
+  "name": "beijing-fushengji-mcp",
+  "version": "1.0.0",
+  "description": "北京浮生记 - AI Agent MCP Game Server",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "beijing-fushengji": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.2",
+    "@types/node": "^22.13.10"
+  }
+}
