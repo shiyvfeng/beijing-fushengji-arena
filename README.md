@@ -121,6 +121,9 @@ src/
 - `zod` — 参数校验
 - 纯内存状态，无数据库依赖
 
+## 原版游戏
+https://github.com/chrisguo/beijing_fushengji
+
 ## 许可证
 
 GPL 2.0
