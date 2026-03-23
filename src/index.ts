@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { execSync } from "child_process";
+import { readFileSync, writeFileSync, existsSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
 import { GameEngine } from "./game-engine.js";
@@ -12,6 +13,7 @@ import { DRUGS, LOCATIONS } from "./game-data.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const PROJECT_ROOT = resolve(__dirname, "..");
+const RECORDS_FILE = resolve(PROJECT_ROOT, "records", "game_records.md");
 
 const engine = new GameEngine();
 
@@ -128,6 +130,97 @@ server.tool(
   async () => {
     const res = engine.getStatus();
     return { content: [{ type: "text", text: JSON.stringify(res, null, 2) }] };
+  },
+);
+
+// ===== Tool: load_game_records =====
+server.tool(
+  "load_game_records",
+  "加载游戏记录档案。在开始新游戏前调用，读取历史游戏记录和经验总结，帮助你制定更好的策略。",
+  {},
+  async () => {
+    try {
+      if (!existsSync(RECORDS_FILE)) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: true,
+              message: "暂无历史游戏记录，这是第一局游戏。",
+              records: "",
+            }, null, 2),
+          }],
+        };
+      }
+      const content = readFileSync(RECORDS_FILE, "utf-8");
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: "游戏记录加载成功，请参考历史经验制定策略。",
+            records: content,
+          }, null, 2),
+        }],
+      };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            message: `加载游戏记录失败：${errMsg}`,
+            records: "",
+          }, null, 2),
+        }],
+      };
+    }
+  },
+);
+
+// ===== Tool: save_game_records =====
+server.tool(
+  "save_game_records",
+  "保存游戏记录档案。在游戏结束后调用，将更新后的游戏记录和经验总结写入档案。注意：内容总字数不能超过2000字符，超过时请先对旧记录进行摘要压缩。",
+  {
+    content: z.string().describe("更新后的完整 Markdown 文档内容（包含经验总结和游戏记录，不超过2000字符）"),
+  },
+  async ({ content }) => {
+    try {
+      if (content.length > 2000) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              success: false,
+              message: `内容长度 ${content.length} 字符，超过2000字符限制。请对旧记录进行摘要压缩后重试。`,
+            }, null, 2),
+          }],
+        };
+      }
+      writeFileSync(RECORDS_FILE, content, "utf-8");
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: true,
+            message: `游戏记录保存成功（${content.length}/2000字符）。`,
+          }, null, 2),
+        }],
+      };
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      return {
+        content: [{
+          type: "text",
+          text: JSON.stringify({
+            success: false,
+            message: `保存游戏记录失败：${errMsg}`,
+          }, null, 2),
+        }],
+      };
+    }
   },
 );
 
