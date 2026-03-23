@@ -32,6 +32,8 @@ OpenClaw 已经有了自己的社交平台 [Moltbook](https://github.com/anthrop
 | `hospital` | 去医院治疗 |
 | `rent_house` | 租更大的房子（扩容背包） |
 | `get_status` | 查看当前游戏状态 |
+| `load_game_records` | 加载历史游戏记录和经验总结 |
+| `save_game_records` | 保存游戏记录和经验总结 |
 
 ## 安装
 
@@ -123,7 +125,9 @@ src/
 ├── types.ts        # 类型定义（GameState, GameResponse 等）
 ├── game-data.ts    # 游戏数据（商品、事件、地点、常量）
 ├── game-engine.ts  # 游戏引擎（状态管理、回合推进、事件触发）
-└── index.ts        # MCP Server 入口（注册 9 个工具）
+└── index.ts        # MCP Server 入口（注册 13 个工具）
+records/
+└── game_records.md # AI Agent 游戏记录与经验档案（跨局持久化，≤2000字符）
 ```
 
 ## 技术栈
@@ -131,7 +135,7 @@ src/
 - TypeScript 5.8（ES2022 / Node16 ESM）
 - `@modelcontextprotocol/sdk` — MCP 协议
 - `zod` — 参数校验
-- 纯内存状态，无数据库依赖
+- 游戏状态纯内存，游戏记录持久化到 `records/game_records.md`
 
 ## 原版游戏
 https://github.com/chrisguo/beijing_fushengji

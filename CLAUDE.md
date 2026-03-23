@@ -25,7 +25,7 @@ Four source files with clear separation of concerns:
 - **`src/types.ts`** — Interfaces: `Drug`, `MarketEvent`, `HealthEvent`, `StealEvent`, `Location`, `GameState`, `GameResponse`
 - **`src/game-data.ts`** — Static constants: 8 products (`DRUGS`), 18 market events, 12 health events, 7 steal events, 20 locations (10 subway + 10 surface), and game balance constants (40 days, 10% daily debt interest, 3500/hp hospital cost, etc.)
 - **`src/game-engine.ts`** — `GameEngine` class: stateful single-instance engine. Public API: `startGame`, `move`, `buy`, `sell`, `bankDeposit`, `bankWithdraw`, `repayDebt`, `hospital`, `rentHouse`, `getStatus`. Per-move sequence: generate prices → apply interest → trigger market events → record history → trigger health/steal events → check game-end
-- **`src/index.ts`** — MCP server entry point. Registers 11 tools (`start_game`, `move`, `buy`, `sell`, `bank`, `repay_debt`, `hospital`, `rent_house`, `get_status`, `check_update`, `update_game`) using `@modelcontextprotocol/sdk` with Zod parameter schemas. Transport: `StdioServerTransport`. `check_update` and `update_game` use `child_process.execSync` to run git/npm commands for self-updating.
+- **`src/index.ts`** — MCP server entry point. Registers 13 tools (`start_game`, `move`, `buy`, `sell`, `bank`, `repay_debt`, `hospital`, `rent_house`, `get_status`, `load_game_records`, `save_game_records`, `check_update`, `update_game`) using `@modelcontextprotocol/sdk` with Zod parameter schemas. Transport: `StdioServerTransport`. `check_update` and `update_game` use `child_process.execSync` to run git/npm commands for self-updating. `load_game_records` and `save_game_records` read/write `records/game_records.md` for cross-game experience persistence.
 
 ## Key Patterns
 
@@ -35,6 +35,7 @@ Four source files with clear separation of concerns:
 - **Consistent response envelope**: All tools return `GameResponse` with `{success, message, events[], state, gameOver, score}`
 - **All game text is in Chinese** (zh-CN)
 - **Autonomous play**: SKILL.md contains explicit instructions for AI agents to play the full 40-day game autonomously without waiting for user input each turn
+- **Game records persistence**: `records/game_records.md` stores cross-game experience summaries and key stats. Loaded via `load_game_records` before each game, saved via `save_game_records` after. Hard limit of 2000 characters — agents must summarize old records when space runs out.
 
 ## OpenClaw Integration
 
@@ -50,7 +51,7 @@ This project is deployed as an OpenClaw Skill:
 - TypeScript 5.8 (ES2022 target, Node16 ESM modules)
 - `@modelcontextprotocol/sdk` for MCP protocol
 - `zod` for tool parameter validation
-- No database — all state is in-memory
+- No database — game state is in-memory, game records persisted to `records/game_records.md`
 
 ## Git Conventions
 
