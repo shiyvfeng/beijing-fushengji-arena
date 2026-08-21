@@ -1,8 +1,49 @@
-# 北京浮生记 MCP Server
+# 北京浮生记 Arena
 
-经典回合制经商游戏「北京浮生记」的 MCP Server 实现。AI Agent 通过 MCP 工具自主完成整局 40 天的游戏——移动、买卖、存取款、还债，全程无需人类干预。
+当前版本的主线是 **Direct-only Arena**：四个独立 Provider/模型在同一中性决策策略、同一规则与预算下，各自完成一局 40 天比赛，并生成可校验 Replay、Trace、运行报告和单文件离线观众页。仓库原有 MCP Server 仍作为 legacy 入口保留，但不迁移、不扩建，也不属于本阶段 Arena 验收。
 
 ![北京浮生记](image.png)
+
+## Direct-only 最小闭环
+
+项目总体进度、v2.1 方案对照、风险和待确认决策统一记录在 [项目进度台账](docs/project-status.md)。日期验收记录只保存当次事实，不替代滚动台账。
+
+当前冻结范围是：四组独立模型配置 → 四次 Provider Probe → 真实比赛 → `replay.json` / `episode-traces.json` / `run-report.json` → 自动生成 `replay.html` → 第 1～40 天事实回放。
+
+四个槽位统一使用 `neutral-v1`，模型只接收无身份观察，不接收展示名称、persona、slot、Provider、model、episode ID 或审计 hash。公共市场共享 seed，个人随机事件仍按槽位隔离，所以本场明确标记为“受控四模型展示赛”，不宣称是纯模型能力排名。技术 DNF 只影响对应 Agent，其他 Agent 继续完成比赛。
+
+Arena 工具链要求 Node.js 22.18 或更高版本。离线测试使用 Fake Provider/Fake Fetch；测试通过不等于真实 Provider 已在线验收。
+
+```bash
+npm ci
+npm --prefix web ci
+npm run test:arena
+npm --prefix web run typecheck
+
+# 显式生成 Scripted 金样（不会调用模型）
+npm run build:arena
+
+# 查看或脱敏检查 Direct 配置（不会发起请求）
+npm run arena:direct -- --help
+npm run arena:direct -- --check-config
+
+# 恰好请求 A/B/C/D 各一次；本 flag 本身就是四次在线请求授权
+npm run arena:direct -- --probe-providers
+
+# Probe 全部通过后，另行显式启动完整比赛
+npm run arena:direct -- --output-dir dist/arena-direct/run-001 --confirm-live-run
+
+# 只从既有 Replay 重建 HTML，不再次调用模型
+npm run arena:replay -- --input dist/arena-direct/run-001/replay.json
+```
+
+Direct Runner 默认读取仓库根目录的本地 `.env`。四位 Agent 分别使用 `ARENA_AGENT_A/B/C/D_PROVIDER`、`BASE_URL`、`API_KEY`、`MODEL` 四组独立配置，支持 OpenAI Responses、Anthropic Messages 和 OpenAI-compatible Chat Completions。DeepSeek 槽位另可用 `ARENA_AGENT_<槽位>_THINKING=default|disabled|enabled` 调整 thinking，默认 `disabled`。Probe 与 `--check-config`、`--confirm-live-run` 互斥；Probe 不要求输出目录、不写比赛产物，也绝不自动续跑完整比赛。完整配置、安全预算、报告字段和恢复构建方式见 [Direct Model Runner](docs/arena-direct.md)。
+
+### 2026-08-21 真实验收状态
+
+已完成一次四 Provider Probe 和一次真实受控展示赛：四个槽位均实际收到请求；OpenAI、Anthropic 和 DeepSeek 得到有效比赛结果，Kimi 在 Day 1 超时后仅对应槽位技术 DNF，其他三局继续结算。Replay、Trace、运行报告和离线 HTML 均已生成并完成 Day 1/39/40 浏览器验收。该结论只对应本次具名配置与本地产物，不表示未来凭据、模型或网关无需重新 Probe。完整数字、hash、浏览器证据和已知延迟统计限制见 [2026-08-21 真实验收记录](docs/arena-direct-acceptance-2026-08-21.md)。
+
+正式页面没有模拟 fallback。缺少或无法验证 Replay 时会直接停止展示；Scripted 数据只能经显式 `arena:sample` / `build:arena` 流程生成。当前交付边界见 [Direct-only Arena 说明](docs/arena-v0.md)。本分支不包含 commit、push、部署或发布承诺。
 
 ## OpenClaw 的游戏
 

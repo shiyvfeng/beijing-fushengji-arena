@@ -9,7 +9,15 @@
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "arena:sample": "npm run build && node dist/arena-cli.js --replay-only --output dist/arena-demo/replay.json",
+    "arena:direct": "node scripts/run-arena-direct.mjs --",
+    "arena:replay": "node scripts/build-arena-replay.mjs",
+    "model:list": "node tools/model-list-query/query-models.mjs",
+    "build:arena": "node scripts/build-arena-demo.mjs",
+    "test:arena-core": "npm run build && node --test tests/core/*.test.mjs",
+    "test:arena-web": "npm --prefix web test",
+    "test:arena": "npm run test:arena-core && npm run test:arena-web"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"

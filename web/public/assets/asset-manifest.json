@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "arena-assets/0.1",
+  "factLayerHashPolicy": "Presentation assets are excluded from ReplayArtifact.factLayerHash.",
+  "assets": {
+    "arena.stage.market": {
+      "fileName": "arena-stage-market-v1.png",
+      "relativePath": "./assets/illustrations/arena-stage-market-v1.png",
+      "alt": "千禧年前后北京电子市场夜景中，四位复古机器人 Agent 并肩站在共享采访舞台",
+      "aspectRatio": "1672 / 941",
+      "sha256": "704a9ae804595a6730a3a926fa2e58227a57d483b494aefbc2f55a7ef8ebf6ec",
+      "source": "Codex built-in ImageGen",
+      "generatedOn": "2026-08-20",
+      "licenseOrReviewStatus": "Public distribution requires review of generated-media terms and project license.",
+      "promptRecord": "./assets/illustrations/arena-stage-market-v1.prompt.md",
+      "seed": "not-returned",
+      "manualEdits": "none-copy-and-rename-only",
+      "publicDistributionAllowed": false
+    },
+    "event.inspection": {
+      "fileName": "inspection-v1.png",
+      "relativePath": "./assets/illustrations/inspection-v1.png",
+      "alt": "夜间电子市场中，检查人员正在清点摊位上的光盘与便携电子产品",
+      "aspectRatio": "3 / 2",
+      "sha256": "ae399ab21390142630e1be95ddee0255fdff77eca6b8e1ec97580d0be0f8b474",
+      "source": "Codex built-in ImageGen",
+      "generatedOn": "2026-08-20",
+      "licenseOrReviewStatus": "Public distribution requires review of generated-media terms and project license.",
+      "promptRecord": "./assets/illustrations/inspection-v1.prompt.md",
+      "seed": "not-returned",
+      "manualEdits": "none-copy-and-rename-only",
+      "publicDistributionAllowed": false
+    }
+  }
+}

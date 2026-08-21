@@ -1,0 +1,8 @@
+# 查询结果可能包含供应商内部模型名称，不提交到仓库。
+model-list.csv
+*.csv
+
+# 禁止把 Base URL/API Key 写入本目录。
+.env
+.env.*
+!.env.example

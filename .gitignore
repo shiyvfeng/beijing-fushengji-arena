@@ -1,3 +1,6 @@
 node_modules/
 dist/
+.env
+.env.*
+!.env.example
 北京浮生记_AI_Agent_Skill_设计文档.md
