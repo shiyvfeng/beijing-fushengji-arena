@@ -1,5 +1,6 @@
 import type { DirectModelProviderAdapter } from "../agent-driver.js";
 import type { ProviderThinkingMode } from "../../core/contracts.js";
+import type { RawExchangeRecorder } from "../diagnostics.js";
 import { AnthropicMessagesProvider } from "./anthropic-messages-provider.js";
 import { OpenAIChatCompletionsProvider } from "./openai-chat-completions-provider.js";
 import { OpenAIResponsesProvider } from "./openai-responses-provider.js";
@@ -23,10 +24,12 @@ export interface ArenaAgentProviderConfig {
   readonly model: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode: ProviderThinkingMode;
+  readonly modelRevision?: string;
 }
 
 export interface ProviderFactoryOptions {
   readonly fetchImpl?: typeof globalThis.fetch;
+  readonly exchangeRecorder?: RawExchangeRecorder;
 }
 
 export function normalizeArenaProviderId(value: string): ArenaProviderId {
@@ -82,6 +85,7 @@ export function normalizeAgentProviderConfig(
     model: requireProviderValue(config.model, `${provider} model`),
     maxOutputTokens: config.maxOutputTokens,
     thinkingMode: normalizeProviderThinkingMode(config.thinkingMode, provider),
+    ...(config.modelRevision?.trim() ? { modelRevision: config.modelRevision.trim() } : {}),
   } as ArenaAgentProviderConfig;
   Object.defineProperty(normalized, "apiKey", {
     value: config.apiKey,
@@ -104,7 +108,9 @@ export function createDirectProviderAdapter(
         allowCustomBaseUrl: true,
         model: config.model,
         maxOutputTokens: config.maxOutputTokens,
+        ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
       });
     case "anthropic":
       return new AnthropicMessagesProvider({
@@ -113,7 +119,9 @@ export function createDirectProviderAdapter(
         baseUrl: config.baseUrl,
         model: config.model,
         maxOutputTokens: config.maxOutputTokens,
+        ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
       });
     case "deepseek":
     case "qwen":
@@ -127,7 +135,9 @@ export function createDirectProviderAdapter(
         useJsonMode: config.provider === "deepseek" || config.provider === "qwen",
         maxOutputTokens: config.maxOutputTokens,
         thinkingMode: config.thinkingMode,
+        ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
+        ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
       });
   }
 }

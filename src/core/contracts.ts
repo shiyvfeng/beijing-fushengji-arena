@@ -1,6 +1,6 @@
 import type { StateDiff } from "./state-diff.js";
 
-export const ARENA_SCHEMA_VERSION = "arena-schema-v2" as const;
+export const ARENA_SCHEMA_VERSION = "arena-schema-v3" as const;
 export const RULESET_VERSION = "fushengji-rules-v1" as const;
 export const TOOL_SCHEMA_VERSION = "arena-tools-v1" as const;
 export const SETTLEMENT_RULE_VERSION = "public-reference-v1" as const;
@@ -18,18 +18,31 @@ export type TechnicalDnfStatus =
 
 export type TechnicalFailureCategory =
   | "timeout"
+  | "total_wall_clock"
+  | "context_limit"
   | "action_budget"
   | "invalid_action_loop"
   | "transport_error"
   | "http_error"
   | "invalid_response"
+  | "invalid_action"
   | "refusal"
   | "incomplete"
   | "driver_error";
 
+export type FaultDomain =
+  | "platform"
+  | "provider"
+  | "model"
+  | "protocol"
+  | "runner"
+  | "undetermined";
+
 export interface TechnicalFailureDetail {
   readonly category: TechnicalFailureCategory;
   readonly phase: "reset" | "decide" | "action";
+  readonly domain: FaultDomain;
+  readonly countsTowardModelFailure: boolean;
   readonly provider?: string;
   readonly httpStatus?: number;
 }
@@ -189,13 +202,19 @@ export interface ArenaEvent {
   readonly sequence: number;
   readonly type: "episode_reset" | "action" | "technical_termination" | "finalize";
   readonly observationHash?: string;
-  readonly contextHash: string;
+  readonly fullContextHash?: string;
+  readonly modelCallId?: string;
   readonly action?: GameAction | Readonly<Record<string, unknown>>;
   readonly stateBefore: GameStateSnapshot;
   readonly stateAfter: GameStateSnapshot;
   readonly stateDiff: StateDiff;
   readonly result: ActionResultPayload;
   readonly sourceRandomStreams: readonly string[];
+}
+
+export interface ModelDecisionEvidence {
+  readonly modelCallId: string;
+  readonly fullContextHash: string;
 }
 
 export interface StepResult {
@@ -238,10 +257,11 @@ export interface FinalResult {
 
 export interface AgentDescriptor {
   readonly id: string;
-  readonly displayName: string;
+  /** Scripted-only presentation label. Direct descriptors must omit it. */
+  readonly displayName?: string;
   readonly slot: number;
   readonly driver: DriverKind;
-  /** Presentation-only persona. It must never enter a Direct Model request. */
+  /** Scripted-only presentation persona. Direct descriptors must omit it. */
   readonly personaId?: string;
   readonly decisionPolicyId?: string;
   readonly decisionPolicyHash?: string;
@@ -249,6 +269,7 @@ export interface AgentDescriptor {
   readonly model?: string;
   readonly providerAdapterVersion?: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly declaredModelRevision?: string;
 }
 
 export interface EpisodeTrace {
@@ -275,7 +296,7 @@ export interface EpisodeTrace {
 
 export interface ReplayAgent {
   readonly id: string;
-  readonly displayName: string;
+  readonly displayName?: string;
   readonly slot: number;
   readonly driver: DriverKind;
   readonly personaId?: string;
@@ -285,6 +306,7 @@ export interface ReplayAgent {
   readonly model?: string;
   readonly providerAdapterVersion?: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly declaredModelRevision?: string;
   readonly status: Exclude<EpisodeStatus, "running">;
   readonly finalNetWorth: number;
   readonly rank: number | null;
@@ -319,15 +341,27 @@ export interface CompetitionAudit {
   readonly decisionPolicyId: string;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
+  readonly contextPolicyVersion: "full-history-v1";
+  readonly samplingPolicyVersion: "provider-default-audited-v1";
   readonly publicRandomization: "shared-seed";
   readonly personalRandomization: "slot-isolated";
+  readonly slotRotation: {
+    readonly version: "cyclic-v1";
+    readonly rotationIndex: number;
+    readonly mappings: readonly {
+      readonly entryIndex: number;
+      readonly agentId: string;
+      readonly slot: number;
+    }[];
+  };
   readonly maxActionsPerAgent: number;
   readonly decisionTimeoutMs: number;
+  readonly totalWallClockMsPerAgent: number;
   readonly maxOutputTokensPerRequest: number;
   readonly automaticRetries: 0;
 }
 
-export interface AgentLuckSummary {
+export interface AgentPersonalRandomEventSummary {
   readonly agentId: string;
   readonly favorableEvents: number;
   readonly adverseEvents: number;
@@ -337,12 +371,10 @@ export interface AgentLuckSummary {
   readonly adverseHealthEvents: number;
 }
 
-export interface LuckAudit {
+export interface PersonalRandomEventAudit {
   readonly basis: "personal-event-count-v1";
   readonly revealDay: number;
-  readonly agents: readonly AgentLuckSummary[];
-  readonly luckiestAgentIds: readonly string[];
-  readonly unluckiestAgentIds: readonly string[];
+  readonly agents: readonly AgentPersonalRandomEventSummary[];
 }
 
 export interface MatchMetadata {
@@ -368,7 +400,7 @@ export interface MatchReplay {
   readonly finalRanking: readonly FinalRankingEntry[];
   readonly setupEvents: readonly ArenaEvent[];
   readonly competitionAudit?: CompetitionAudit;
-  readonly luckAudit: LuckAudit;
+  readonly personalRandomEventAudit: PersonalRandomEventAudit;
   readonly configHash: string;
   readonly eventHash: string;
   readonly factHash: string;
@@ -378,6 +410,6 @@ export interface MatchReplay {
 export interface GameEnvironmentContract {
   reset(config: EpisodeConfig): Observation;
   observe(): Observation;
-  step(action: GameAction | unknown): StepResult;
+  step(action: GameAction | unknown, evidence?: ModelDecisionEvidence): StepResult;
   finalize(): FinalResult;
 }

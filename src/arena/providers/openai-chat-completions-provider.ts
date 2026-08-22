@@ -1,10 +1,13 @@
-import type { DirectModelProviderAdapter, DirectModelDecisionInput } from "../agent-driver.js";
+import type { DirectModelProviderAdapter, DirectModelDecisionInput, SamplingAudit } from "../agent-driver.js";
 import type { ProviderThinkingMode } from "../../core/contracts.js";
+import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
   buildArenaUserContext,
+  classifyHttpFailure,
   DirectProviderRequestError,
   isProviderRecord,
+  extractResponseModelRevision,
   normalizeProviderTokenUsage,
   parseStrictJsonAction,
   requireProviderValue,
@@ -25,7 +28,9 @@ export interface OpenAIChatCompletionsProviderOptions {
   readonly maxOutputTokens?: number;
   /** DeepSeek thinking control. `default` omits the provider-specific request field. */
   readonly thinkingMode?: ProviderThinkingMode;
+  readonly declaredModelRevision?: string;
   readonly fetchImpl?: typeof globalThis.fetch;
+  readonly exchangeRecorder?: RawExchangeRecorder;
 }
 
 function validateThinkingMode(value: ProviderThinkingMode | undefined): ProviderThinkingMode {
@@ -36,12 +41,19 @@ function validateThinkingMode(value: ProviderThinkingMode | undefined): Provider
   return normalized;
 }
 
-function collectMessageText(payload: Record<string, unknown>, providerId: string): string {
+function collectMessageText(
+  payload: Record<string, unknown>,
+  providerId: string,
+  responseModelRevision?: string,
+): string {
+  const revision = { responseModelRevision };
   if (!Array.isArray(payload.choices) || payload.choices.length < 1) {
     throw new DirectProviderRequestError(
       providerId,
       "invalid_response",
       `${providerId} Chat Completions 返回结构不合法`,
+      undefined,
+      revision,
     );
   }
   const choice = payload.choices[0];
@@ -50,6 +62,8 @@ function collectMessageText(payload: Record<string, unknown>, providerId: string
       providerId,
       "invalid_response",
       `${providerId} Chat Completions 返回结构不合法`,
+      undefined,
+      revision,
     );
   }
   if (choice.finish_reason === "length") {
@@ -57,6 +71,8 @@ function collectMessageText(payload: Record<string, unknown>, providerId: string
       providerId,
       "incomplete",
       `${providerId} Chat Completions 未完成 Arena 动作生成`,
+      undefined,
+      revision,
     );
   }
   if (choice.finish_reason === "content_filter" || choice.finish_reason === "refusal") {
@@ -64,13 +80,35 @@ function collectMessageText(payload: Record<string, unknown>, providerId: string
       providerId,
       "refusal",
       `${providerId} Chat Completions 拒绝生成 Arena 动作`,
+      undefined,
+      revision,
     );
   }
-  if (!isProviderRecord(choice.message) || typeof choice.message.content !== "string") {
+  if (!isProviderRecord(choice.message)) {
     throw new DirectProviderRequestError(
       providerId,
       "invalid_response",
       `${providerId} Chat Completions 未返回文本动作`,
+      undefined,
+      revision,
+    );
+  }
+  if (typeof choice.message.refusal === "string" && choice.message.refusal.trim()) {
+    throw new DirectProviderRequestError(
+      providerId,
+      "refusal",
+      `${providerId} Chat Completions 拒绝生成 Arena 动作`,
+      undefined,
+      revision,
+    );
+  }
+  if (typeof choice.message.content !== "string") {
+    throw new DirectProviderRequestError(
+      providerId,
+      "invalid_response",
+      `${providerId} Chat Completions 未返回文本动作`,
+      undefined,
+      revision,
     );
   }
   return choice.message.content;
@@ -82,11 +120,14 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode: ProviderThinkingMode;
+  readonly declaredModelRevision?: string;
+  readonly samplingAudit: SamplingAudit;
 
   readonly #apiKey: string;
   readonly #endpoint: string;
   readonly #fetch: typeof globalThis.fetch;
   readonly #useJsonMode: boolean;
+  readonly #exchangeRecorder?: RawExchangeRecorder;
 
   constructor(options: OpenAIChatCompletionsProviderOptions) {
     this.providerId = requireProviderValue(options.providerId, "providerId");
@@ -102,8 +143,23 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       this.providerId,
     );
     this.thinkingMode = validateThinkingMode(options.thinkingMode);
+    if (options.declaredModelRevision?.trim()) {
+      this.declaredModelRevision = options.declaredModelRevision.trim();
+    }
     this.#useJsonMode = options.useJsonMode === true;
+    this.samplingAudit = Object.freeze({
+      policyVersion: "provider-default-audited-v1",
+      temperature: "omitted",
+      topP: "omitted",
+      maxOutputTokens: this.maxOutputTokens,
+      jsonMode: this.#useJsonMode ? "json-object" : "none",
+      thinking: Object.freeze({
+        mode: this.thinkingMode,
+        sent: this.thinkingMode !== "default",
+      }),
+    });
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    this.#exchangeRecorder = options.exchangeRecorder;
     if (typeof this.#fetch !== "function") {
       throw new Error("当前运行时不支持 fetch，请升级到 Node.js 22 或显式注入 fetchImpl");
     }
@@ -124,19 +180,28 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       ...(this.#useJsonMode ? { response_format: { type: "json_object" } } : {}),
     };
 
+    const requestHeaders = {
+      Authorization: `Bearer ${this.#apiKey}`,
+      "Content-Type": "application/json",
+    };
+    const requestBody = JSON.stringify(body);
     let response: Response;
     try {
       response = await this.#fetch(this.#endpoint, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.#apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
+        headers: requestHeaders,
+        body: requestBody,
         signal: input.signal,
         redirect: "error",
       });
     } catch {
+      this.#exchangeRecorder?.capture({
+        modelCallId: input.modelCallId,
+        provider: this.providerId,
+        endpoint: this.#endpoint,
+        request: { method: "POST", headers: requestHeaders, body: requestBody },
+        transportError: true,
+      });
       if (input.signal.aborted) {
         throw input.signal.reason instanceof Error
           ? input.signal.reason
@@ -148,11 +213,19 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
         `${this.providerId} Chat Completions 请求失败`,
       );
     }
+    this.#exchangeRecorder?.capture({
+      modelCallId: input.modelCallId,
+      provider: this.providerId,
+      endpoint: this.#endpoint,
+      request: { method: "POST", headers: requestHeaders, body: requestBody },
+      response: response.clone(),
+    });
 
     if (!response.ok) {
+      const code = await classifyHttpFailure(response);
       throw new DirectProviderRequestError(
         this.providerId,
-        "http_error",
+        code,
         `${this.providerId} Chat Completions 返回 HTTP ${response.status}`,
         response.status,
       );
@@ -175,11 +248,22 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
         `${this.providerId} Chat Completions 返回结构不合法`,
       );
     }
+    const responseModelRevision = extractResponseModelRevision(payload);
     const action = parseStrictJsonAction(
-      collectMessageText(payload, this.providerId),
+      collectMessageText(payload, this.providerId, responseModelRevision),
       input,
       this.providerId,
+      responseModelRevision,
     );
+    if (payload.usage !== undefined && !isProviderRecord(payload.usage)) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Chat Completions usage 协议不合法`,
+        undefined,
+        { responseModelRevision },
+      );
+    }
     const usage = isProviderRecord(payload.usage)
       ? normalizeProviderTokenUsage(
           payload.usage.prompt_tokens,
@@ -187,6 +271,19 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
           payload.usage.total_tokens,
         )
       : undefined;
-    return Object.freeze({ action, ...(usage ? { usage } : {}) });
+    if (isProviderRecord(payload.usage) && !usage) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Chat Completions usage 协议不合法`,
+        undefined,
+        { responseModelRevision },
+      );
+    }
+    return Object.freeze({
+      action,
+      ...(usage ? { usage } : {}),
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+    });
   }
 }

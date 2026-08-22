@@ -2,11 +2,15 @@ import type { GameAction } from "../../core/contracts.js";
 import type {
   DirectModelDecisionInput,
   DirectModelProviderAdapter,
+  SamplingAudit,
 } from "../agent-driver.js";
+import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
   buildArenaUserContext,
+  classifyHttpFailure,
   DirectProviderRequestError,
+  extractResponseModelRevision,
   normalizeProviderTokenUsage,
 } from "./provider-utils.js";
 
@@ -81,8 +85,10 @@ export interface OpenAIResponsesProviderOptions {
   readonly allowCustomBaseUrl?: boolean;
   /** Per-decision output ceiling. The action schema normally needs far less. */
   readonly maxOutputTokens?: number;
+  readonly declaredModelRevision?: string;
   /** Injectable for hermetic tests. Production defaults to Node's global fetch. */
   readonly fetchImpl?: typeof globalThis.fetch;
+  readonly exchangeRecorder?: RawExchangeRecorder;
 }
 
 function requireNonEmpty(value: string, name: string): string {
@@ -177,7 +183,10 @@ function parseActionEnvelope(value: unknown): GameAction | null {
   }
 }
 
-function collectOutputText(payload: Record<string, unknown>): string | null {
+function collectOutputText(
+  payload: Record<string, unknown>,
+  responseModelRevision?: string,
+): string | null {
   if (!Array.isArray(payload.output)) return null;
   const chunks: string[] = [];
   for (const item of payload.output) {
@@ -189,6 +198,8 @@ function collectOutputText(payload: Record<string, unknown>): string | null {
           "openai",
           "refusal",
           "OpenAI Responses API 拒绝生成 Arena 动作",
+          undefined,
+          { responseModelRevision },
         );
       }
       if (content.type === "output_text" && typeof content.text === "string") {
@@ -237,10 +248,13 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
   readonly adapterVersion = "openai-responses-v2";
   readonly modelId: string;
   readonly maxOutputTokens: number;
+  readonly declaredModelRevision?: string;
+  readonly samplingAudit: SamplingAudit;
 
   readonly #apiKey: string;
   readonly #endpoint: string;
   readonly #fetch: typeof globalThis.fetch;
+  readonly #exchangeRecorder?: RawExchangeRecorder;
 
   constructor(options: OpenAIResponsesProviderOptions) {
     const apiKey = requireNonEmpty(options.apiKey, "OpenAI apiKey");
@@ -254,30 +268,51 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
       || this.maxOutputTokens > 4_096) {
       throw new Error("OpenAI maxOutputTokens 必须为 16..4096 的安全整数");
     }
+    if (options.declaredModelRevision?.trim()) {
+      this.declaredModelRevision = options.declaredModelRevision.trim();
+    }
+    this.samplingAudit = Object.freeze({
+      policyVersion: "provider-default-audited-v1",
+      temperature: "omitted",
+      topP: "omitted",
+      maxOutputTokens: this.maxOutputTokens,
+      jsonMode: "json-schema",
+      thinking: Object.freeze({ mode: "default", sent: false }),
+    });
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    this.#exchangeRecorder = options.exchangeRecorder;
     if (typeof this.#fetch !== "function") {
       throw new Error("当前运行时不支持 fetch，请升级到 Node.js 22 或显式注入 fetchImpl");
     }
   }
 
   async requestDecision(input: DirectModelDecisionInput) {
+    const requestHeaders = {
+      Authorization: `Bearer ${this.#apiKey}`,
+      "Content-Type": "application/json",
+    };
+    const requestBody = JSON.stringify(buildRequestBody(
+      input,
+      this.modelId,
+      this.maxOutputTokens,
+    ));
     let response: Response;
     try {
       response = await this.#fetch(this.#endpoint, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${this.#apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(buildRequestBody(
-          input,
-          this.modelId,
-          this.maxOutputTokens,
-        )),
+        headers: requestHeaders,
+        body: requestBody,
         signal: input.signal,
         redirect: "error",
       });
     } catch {
+      this.#exchangeRecorder?.capture({
+        modelCallId: input.modelCallId,
+        provider: this.providerId,
+        endpoint: this.#endpoint,
+        request: { method: "POST", headers: requestHeaders, body: requestBody },
+        transportError: true,
+      });
       if (input.signal.aborted) {
         throw input.signal.reason instanceof Error
           ? input.signal.reason
@@ -289,11 +324,19 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         "OpenAI Responses API 请求失败",
       );
     }
+    this.#exchangeRecorder?.capture({
+      modelCallId: input.modelCallId,
+      provider: this.providerId,
+      endpoint: this.#endpoint,
+      request: { method: "POST", headers: requestHeaders, body: requestBody },
+      response: response.clone(),
+    });
 
     if (!response.ok) {
+      const code = await classifyHttpFailure(response);
       throw new DirectProviderRequestError(
         this.providerId,
-        "http_error",
+        code,
         `OpenAI Responses API 返回 HTTP ${response.status}`,
         response.status,
       );
@@ -316,11 +359,14 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         "OpenAI Responses API 返回结构不合法",
       );
     }
+    const responseModelRevision = extractResponseModelRevision(payload);
     if (payload.status === "incomplete") {
       throw new DirectProviderRequestError(
         this.providerId,
         "incomplete",
         "OpenAI Responses API 未完成 Arena 动作生成",
+        undefined,
+        { responseModelRevision },
       );
     }
     if (payload.status !== "completed") {
@@ -328,15 +374,19 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         this.providerId,
         "invalid_response",
         "OpenAI Responses API 返回状态不合法",
+        undefined,
+        { responseModelRevision },
       );
     }
 
-    const outputText = collectOutputText(payload);
+    const outputText = collectOutputText(payload, responseModelRevision);
     if (outputText === null) {
       throw new DirectProviderRequestError(
         this.providerId,
         "invalid_response",
         "OpenAI Responses API 未返回结构化动作",
+        undefined,
+        { responseModelRevision },
       );
     }
 
@@ -348,14 +398,27 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         this.providerId,
         "invalid_response",
         "OpenAI Responses API 返回的动作无法解析",
+        undefined,
+        { responseModelRevision },
       );
     }
     const action = parseActionEnvelope(envelope);
     if (!action || !input.observation.allowedActions.includes(action.type)) {
       throw new DirectProviderRequestError(
         this.providerId,
-        "invalid_response",
+        "invalid_action",
         "OpenAI Responses API 返回的动作不符合 Arena 契约",
+        undefined,
+        { responseModelRevision },
+      );
+    }
+    if (payload.usage !== undefined && !isRecord(payload.usage)) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        "OpenAI Responses API usage 协议不合法",
+        undefined,
+        { responseModelRevision },
       );
     }
     const usage = isRecord(payload.usage)
@@ -365,6 +428,19 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
           payload.usage.total_tokens,
         )
       : undefined;
-    return Object.freeze({ action, ...(usage ? { usage } : {}) });
+    if (isRecord(payload.usage) && !usage) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        "OpenAI Responses API usage 协议不合法",
+        undefined,
+        { responseModelRevision },
+      );
+    }
+    return Object.freeze({
+      action,
+      ...(usage ? { usage } : {}),
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+    });
   }
 }

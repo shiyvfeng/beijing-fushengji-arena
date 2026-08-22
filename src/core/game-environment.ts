@@ -31,6 +31,7 @@ import type {
   GameEnvironmentContract,
   GameStateSnapshot,
   InventoryPosition,
+  ModelDecisionEvidence,
   Observation,
   SettlementLine,
   StepResult,
@@ -255,7 +256,7 @@ export class GameEnvironment implements GameEnvironmentContract {
     return this.buildObservation();
   }
 
-  step(input: GameAction | unknown): StepResult {
+  step(input: GameAction | unknown, evidence?: ModelDecisionEvidence): StepResult {
     const state = this.ensureInitialized();
     const before = this.snapshot();
 
@@ -283,11 +284,12 @@ export class GameEnvironment implements GameEnvironmentContract {
         payload,
         [],
         this.buildObservation().observationHash,
+        evidence,
       );
       return this.makeStepResult(payload, before, before, {}, event);
     }
 
-    const contextHash = this.buildObservation().observationHash;
+    const observationHash = this.buildObservation().observationHash;
     const execution = this.executeAction(action);
     if (execution.success) {
       state.actionCount++;
@@ -302,7 +304,8 @@ export class GameEnvironment implements GameEnvironmentContract {
       after,
       execution,
       execution.streams,
-      contextHash,
+      observationHash,
+      evidence,
     );
     return this.makeStepResult(execution, before, after, diff, event);
   }
@@ -311,10 +314,12 @@ export class GameEnvironment implements GameEnvironmentContract {
     status: TechnicalDnfStatus,
     message: string,
     detail: TechnicalFailureDetail,
+    evidence?: ModelDecisionEvidence,
   ): void {
     const state = this.ensureInitialized();
     if (this.finalResult !== null || state.status !== "running") return;
     const before = this.snapshot();
+    const observationHash = this.buildObservation().observationHash;
     state.status = status;
     this.failureMessage = message.slice(0, 500);
     this.technicalFailure = immutableClone(detail) as TechnicalFailureDetail;
@@ -334,7 +339,8 @@ export class GameEnvironment implements GameEnvironmentContract {
         }],
       },
       [],
-      integrityHash({ status, before }),
+      observationHash,
+      evidence,
     );
   }
 
@@ -346,7 +352,12 @@ export class GameEnvironment implements GameEnvironmentContract {
       this.terminateTechnical(
         "loop_terminated",
         "对局尚未自然结束时调用了 finalize()。",
-        { category: "invalid_action_loop", phase: "action" },
+        {
+          category: "invalid_action_loop",
+          phase: "action",
+          domain: "model",
+          countsTowardModelFailure: true,
+        },
       );
     }
 
@@ -392,6 +403,7 @@ export class GameEnvironment implements GameEnvironmentContract {
       },
       ["public.market.base", "public.market.event"],
       integrityHash({ status: terminalStatus, before }),
+      undefined,
       state.totalDays,
     );
 
@@ -885,7 +897,8 @@ export class GameEnvironment implements GameEnvironmentContract {
     after: GameStateSnapshot,
     payload: ActionResultPayload,
     streams: readonly string[],
-    contextHash: string,
+    observationHash?: string,
+    evidence?: ModelDecisionEvidence,
     dayOverride?: number,
   ): ArenaEvent {
     const config = this.config!;
@@ -907,8 +920,11 @@ export class GameEnvironment implements GameEnvironmentContract {
       day: dayOverride ?? after.day,
       sequence,
       type,
-      ...(contextHash ? { observationHash: contextHash } : {}),
-      contextHash,
+      ...(observationHash ? { observationHash } : {}),
+      ...(evidence ? {
+        modelCallId: evidence.modelCallId,
+        fullContextHash: evidence.fullContextHash,
+      } : {}),
       ...(action ? { action: cloneValue(action) } : {}),
       stateBefore: before,
       stateAfter: after,

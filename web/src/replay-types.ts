@@ -1,5 +1,4 @@
-export const AGENT_IDS = ["A", "B", "C", "D"] as const;
-export type AgentId = (typeof AGENT_IDS)[number];
+export type AgentId = string;
 
 export type PublicEpisodeStatus =
   | "running"
@@ -11,13 +10,24 @@ export type PublicEpisodeStatus =
   | "loop_terminated"
   | "runtime_error";
 
+export type FaultDomain =
+  | "platform"
+  | "provider"
+  | "model"
+  | "protocol"
+  | "runner"
+  | "undetermined";
+
 export type TechnicalFailureCategory =
   | "timeout"
+  | "total_wall_clock"
+  | "context_limit"
   | "action_budget"
   | "invalid_action_loop"
   | "transport_error"
   | "http_error"
   | "invalid_response"
+  | "invalid_action"
   | "refusal"
   | "incomplete"
   | "driver_error";
@@ -25,18 +35,19 @@ export type TechnicalFailureCategory =
 export interface TechnicalFailure {
   category: TechnicalFailureCategory;
   phase: "reset" | "decide" | "action";
+  domain: FaultDomain;
+  countsTowardModelFailure: boolean;
   provider?: string;
   httpStatus?: number;
 }
 
 export interface AgentProfile {
   id: AgentId;
-  coreId: string;
-  name: string;
-  personaId?: string;
+  label: string;
   provider: string;
   model: string;
   adapterVersion: string;
+  visualIndex: number;
 }
 
 export interface PriceQuote {
@@ -101,15 +112,23 @@ export interface CompetitionAudit {
   decisionPolicyId: string;
   decisionPolicyHash: string;
   modelObservationVersion: string;
+  contextPolicyVersion: "full-history-v1";
+  samplingPolicyVersion: "provider-default-audited-v1";
   publicRandomization: "shared-seed";
   personalRandomization: "slot-isolated";
+  slotRotation: {
+    version: "cyclic-v1";
+    rotationIndex: number;
+    mappings: { entryIndex: number; agentId: string; slot: number }[];
+  };
   maxActionsPerAgent: number;
   decisionTimeoutMs: number;
+  totalWallClockMsPerAgent: number;
   maxOutputTokensPerRequest: number;
   automaticRetries: 0;
 }
 
-export interface AgentLuckSummary {
+export interface AgentPersonalRandomEventSummary {
   agentId: AgentId;
   favorableEvents: number;
   adverseEvents: number;
@@ -119,12 +138,10 @@ export interface AgentLuckSummary {
   adverseHealthEvents: number;
 }
 
-export interface LuckAudit {
+export interface PersonalRandomEventAudit {
   basis: "personal-event-count-v1";
   revealDay: 40;
-  agents: AgentLuckSummary[];
-  luckiestAgentIds: AgentId[];
-  unluckiestAgentIds: AgentId[];
+  agents: AgentPersonalRandomEventSummary[];
 }
 
 export interface FinalResult {
@@ -141,7 +158,7 @@ export interface FinalResult {
 }
 
 export interface ReplayArtifact {
-  schemaVersion: "arena-replay-view-v1";
+  schemaVersion: "arena-replay-view-v2";
   executionMode: "scripted" | "direct";
   matchId: string;
   title: string;
@@ -153,6 +170,6 @@ export interface ReplayArtifact {
   agentProfiles: AgentProfile[];
   days: ReplayDay[];
   competitionAudit?: CompetitionAudit;
-  luckAudit: LuckAudit;
+  personalRandomEventAudit: PersonalRandomEventAudit;
   finalResults: FinalResult[];
 }

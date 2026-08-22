@@ -41,7 +41,7 @@ async function ensureWebDependencies() {
   try {
     await access(tscPath);
   } catch {
-    throw new Error("Web 依赖尚未安装；请先运行 `npm --prefix web ci`，再重试 `npm run build:arena`");
+    throw new Error("Web 依赖尚未安装；请先运行 `npm --prefix web ci`，再重试 `npm run internal:build:arena`");
   }
 }
 
@@ -83,9 +83,9 @@ function validateReplay(replay) {
   if (replay?.days?.some((day, index) => day.day !== index + 1)) errors.push("Replay 日期不连续");
   if (replay?.days?.some(day => day.agentSnapshots?.length !== 4)) errors.push("存在缺少四人快照的日期");
   if (!String(replay?.replayHash ?? "").startsWith("sha256:")) errors.push("Replay hash 不是 SHA-256");
-  if (replay?.schemaVersion !== "arena-schema-v2") errors.push("Replay schema 不是 v2");
+  if (replay?.schemaVersion !== "arena-schema-v3") errors.push("Replay schema 不是 v3");
   if (replay?.competitionAudit !== undefined) errors.push("Scripted 金样不得声明 Direct competitionAudit");
-  if (replay?.luckAudit?.basis !== "personal-event-count-v1") errors.push("Replay 缺少运气审计口径");
+  if (replay?.personalRandomEventAudit?.basis !== "personal-event-count-v1") errors.push("Replay 缺少个人随机事件审计口径");
   if (errors.length) throw new Error(`Replay 验证失败：${errors.join("；")}`);
 }
 
@@ -147,6 +147,7 @@ run(process.execPath, [
   replayPath,
   "--output",
   htmlPath,
+  "--allow-internal-scripted",
 ], root);
 await copyFile(
   assetManifestPath,
@@ -169,7 +170,7 @@ const validation = {
   replayHashVisible: true,
   assetHashesVerified: verifiedAssetCount,
   apiKeyPatternFound: false,
-  luckAuditBasis: output.replay.luckAudit.basis,
+  personalRandomEventAuditBasis: output.replay.personalRandomEventAudit.basis,
   limitations: output.report.limitations,
 };
 await writeFile(join(outputRoot, "validation-report.json"), `${JSON.stringify(validation, null, 2)}\n`, "utf8");

@@ -1,7 +1,7 @@
 import { integrityHash } from "../../src/replay-integrity.ts";
 
 const hash = `sha256:${"a".repeat(64)}`;
-const coreAgentIds = ["agent-a", "agent-b", "agent-c", "agent-d"];
+const coreAgentIds = ["competitor-1", "competitor-2", "competitor-3", "competitor-4", "competitor-5"];
 
 function state(day: number, status: string, slot: number) {
   const prices = Array.from({ length: 8 }, (_, index) => 100 + day + index);
@@ -27,7 +27,7 @@ function state(day: number, status: string, slot: number) {
 }
 
 function finalResult(slot: number) {
-  const technical = slot === 3;
+  const technical = slot === 4;
   const status = technical ? "runtime_error" : "completed";
   const endDay = technical ? 12 : 40;
   const finalNetWorth = 6_000 - slot * 100;
@@ -55,7 +55,14 @@ function finalResult(slot: number) {
     evidenceEventId: `final-${slot}`,
     ...(technical ? {
       failureMessage: "Provider 请求未能返回可执行的 Arena 动作。",
-      technicalFailure: { category: "http_error", phase: "decide", provider: "provider-d", httpStatus: 503 },
+      technicalFailure: {
+        category: "http_error",
+        phase: "decide",
+        domain: "provider",
+        countsTowardModelFailure: false,
+        provider: "provider-4",
+        httpStatus: 503,
+      },
     } : {}),
   };
 }
@@ -73,19 +80,17 @@ export function coreReplayFixture(): any {
     const result = finalResult(slot);
     return {
       id,
-      displayName: `测试 Agent ${slot}`,
       slot,
       driver: "direct",
-      personaId: `persona-${slot}`,
       decisionPolicyId: "neutral-v1",
       decisionPolicyHash: policyHash,
       provider: `provider-${slot}`,
       model: `model-${slot}`,
-      providerAdapterVersion: `adapter-${slot}-v2`,
+      providerAdapterVersion: `adapter-${slot}-v3`,
       status: result.status,
       finalNetWorth: result.finalNetWorth,
-      rank: slot === 3 ? null : slot + 1,
-      rankEligible: slot !== 3,
+      rank: slot === 4 ? null : slot + 1,
+      rankEligible: slot !== 4,
       traceHash: hash,
       finalResult: result,
     };
@@ -93,8 +98,8 @@ export function coreReplayFixture(): any {
   const days = Array.from({ length: 40 }, (_, dayIndex) => {
     const day = dayIndex + 1;
     const events = coreAgentIds.flatMap((agentId, slot) => {
-      if (slot === 3 && day > 12) return [];
-      const status = slot === 3 && day === 12 ? "runtime_error" : day === 40 ? "completed" : "running";
+      if (slot === 4 && day > 12) return [];
+      const status = slot === 4 && day === 12 ? "runtime_error" : day === 40 ? "completed" : "running";
       const effects = day === 2 && slot < 2
         ? [{ scope: "public", kind: "market", globalEventId: "public-market-day-2", message: "全场公开价格波动" }]
         : day === 5 && slot === 0
@@ -106,9 +111,12 @@ export function coreReplayFixture(): any {
         day,
         sequence: day * 10 + sequence,
         type: "action",
+        observationHash: hash,
+        fullContextHash: hash,
+        modelCallId: `model-call-${day}-${slot}-${sequence}`,
         action: sequence === 0 ? { type: "move", locationId: (slot + day) % 20 } : { type: "deposit", amount: 1 },
         stateAfter: state(day, status, slot),
-        result: { success: true, message: `Agent ${slot} 动作 ${sequence + 1} 结果`, effects },
+        result: { success: true, message: `参赛者 ${slot} 动作 ${sequence + 1} 结果`, effects },
       }));
     });
     return {
@@ -117,13 +125,13 @@ export function coreReplayFixture(): any {
       agentSnapshots: coreAgentIds.map((agentId, slot) => ({
         agentId,
         agentSlot: slot,
-        state: state(day, slot === 3 && day >= 12 ? "runtime_error" : day === 40 ? "completed" : "running", slot),
+        state: state(day, slot === 4 && day >= 12 ? "runtime_error" : day === 40 ? "completed" : "running", slot),
       })),
       events,
     };
   });
   const body = {
-    schemaVersion: "arena-schema-v2",
+    schemaVersion: "arena-schema-v3",
     matchId: "web-adapter-test",
     rulesetVersion: "fushengji-rules-v1",
     toolSchemaVersion: "arena-tools-v1",
@@ -131,11 +139,11 @@ export function coreReplayFixture(): any {
     settlementRuleVersion: "public-reference-v1",
     scenarioId: "adapter-test-scenario",
     seed: 42,
-    metadata: { title: "Direct Adapter Test", executionMode: "direct", agentCount: 4, totalDays: 40 },
-    sourceTraceHashes: Array(4).fill(hash),
+    metadata: { title: "受控五模型展示赛", executionMode: "direct", agentCount: 5, totalDays: 40 },
+    sourceTraceHashes: Array(5).fill(hash),
     agents,
     days,
-    finalRanking: agents.slice(0, 3).map((agent, index) => ({
+    finalRanking: agents.slice(0, 4).map((agent, index) => ({
       rank: index + 1,
       agentId: agent.id,
       agentSlot: agent.slot,
@@ -151,14 +159,22 @@ export function coreReplayFixture(): any {
       decisionPolicyId: "neutral-v1",
       decisionPolicyHash: policyHash,
       modelObservationVersion: "identity-free-v1",
+      contextPolicyVersion: "full-history-v1",
+      samplingPolicyVersion: "provider-default-audited-v1",
       publicRandomization: "shared-seed",
       personalRandomization: "slot-isolated",
+      slotRotation: {
+        version: "cyclic-v1",
+        rotationIndex: 0,
+        mappings: coreAgentIds.map((agentId, entryIndex) => ({ entryIndex, agentId, slot: entryIndex })),
+      },
       maxActionsPerAgent: 160,
       decisionTimeoutMs: 60_000,
+      totalWallClockMsPerAgent: 9_600_000,
       maxOutputTokensPerRequest: 512,
       automaticRetries: 0,
     },
-    luckAudit: {
+    personalRandomEventAudit: {
       basis: "personal-event-count-v1",
       revealDay: 40,
       agents: coreAgentIds.map((agentId, slot) => ({
@@ -170,8 +186,6 @@ export function coreReplayFixture(): any {
         adverseDebtEvents: 0,
         adverseHealthEvents: 0,
       })),
-      luckiestAgentIds: ["agent-b"],
-      unluckiestAgentIds: ["agent-a"],
     },
     configHash: hash,
     eventHash: hash,

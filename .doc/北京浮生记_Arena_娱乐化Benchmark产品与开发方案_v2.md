@@ -422,24 +422,23 @@ P0 必须记录以上指标所需数据；多 seed 榜单、五维雷达图与�
 
 ## 6.4 历史上下文管理契约
 
-所有参赛 Agent 必须使用同一种、可审计的上下文管理策略。P0 默认采用：
+所有参赛 Agent 必须使用同一种、可审计的上下文管理策略。P0 冻结为 `full-history-v1`：
 
 ```text
 固定系统 Prompt
-+ 当前结构化状态
-+ 已公开世界消息
-+ 程序生成的历史摘要
-+ 最近 N 次工具调用与结果
++ 当前一次无身份 Observation
++ 本局此前全部 action、result、effects 和 state diff
 ```
 
 要求如下：
 
-- 历史摘要由程序模板生成，不使用参赛模型自行概括；
-- 摘要字段、字符或 Token 上限、最近工具调用数量写入 MatchConfig；
+- 不发送旧 Observation 快照，不生成历史摘要，不截断历史，也不只保留最近 N 次；
+- 不根据不同模型的上下文窗口做差异化裁剪、压缩或补充；
 - 五个 Direct Agent 使用逐字节一致的 Observation Schema 和序列化策略；
 - 不加载跨局经验、个人记忆或 `game_records`；
-- 不因模型上下文窗口大小不同而临时增加或删除信息；
-- 每次实际发送给模型的完整上下文保存 hash，hash 必须覆盖系统指令、结构化状态、公开消息、程序摘要和最近工具结果；
+- Provider、model、slot、其他参赛者、排名、审计 ID 和 Enrichment 信息不得进入模型上下文；
+- 每次实际发送给模型的完整上下文保存 hash，hash 必须覆盖系统指令、当前 Observation 和本局此前全部动作事实；
+- Provider 明确返回上下文超限时记录为 `runtime_error + context_limit` 技术 DNF，零重试、零压缩，其余 Agent 继续；
 - Run Report 记录 model revision、sampling parameters、总墙钟、请求与 action 的逐条关联、故障责任归属以及输入/输出 Token；
 - 每场 Match 必须创建全新 session，任何前轮 Runner 或 Replay Enrichment 的结果、采访和叙事均不得进入下一轮上下文；
 - 原始请求/响应正文仅在显式诊断开关开启时保存，并遵守 §19.3 的独立目录与脱敏规则。
@@ -1438,7 +1437,7 @@ P0 Web 是只读、离线优先的单页应用：
 - Replay 校验失败时停止展示并给出明确错误；
 - P0 不需要数据库、账号系统或服务端渲染。
 
-Direct Model 的 API Key 只从环境变量或本机密钥存储读取，不写入 MatchConfig、日志、Replay 或前端包。正式验收必须保存脱敏的 Provider Probe 结果摘要。Probe 与正式比赛的原始请求/响应由同一个显式诊断开关控制，代码默认关闭，开发 `.env` 可默认开启；开启时写入独立、Git 忽略的诊断目录，只移除 Authorization、API Key、Cookie 等凭据，保留诊断所需的请求/响应正文。当前本地开发不做自动清理；Replay 仍只保存结构化事实，原始交换不属于 Replay hash。
+Direct Model 的 API Key 只从环境变量或本机密钥存储读取，不写入 MatchConfig、日志、Replay 或前端包。正式验收必须保存脱敏的 Provider Probe 结果摘要。Probe 与正式比赛的原始请求/响应由同一个显式诊断开关控制，代码和 `.env.example` 默认关闭，只有操作者在本地明确启用时才写入独立、Git 忽略的诊断目录；实现过程不得修改真实 `.env`。诊断需移除 Authorization、API Key、Cookie、Bearer 和嵌套凭据字段，同时保留其他诊断所需的请求/响应正文。当前本地开发不做自动清理；Replay 仍只保存结构化事实，原始交换不属于 Replay hash。
 
 ## 19.4 建议目录
 
@@ -1855,7 +1854,7 @@ P0.5 的程序化加工、通用第六模型、选手原模型采访或解说失
 | 五模型 Match Runner | 一条命令以同一 scenario、seed 和预算运行 5 个独立 Agent；五组 `Provider + model` 不得重复 |
 | Provider Probe | 正式比赛前并行请求五组配置，严格验证 Action 并保存脱敏 Probe 摘要 |
 | 结构化日志 | action、before、after、diff、随机流来源、完整上下文 hash、模型调用与证据 ID |
-| 上下文契约 | 无身份 Observation + 程序摘要 + 最近 N 次工具结果，禁止跨局记录，五 Agent 配置一致 |
+| 上下文契约 | `full-history-v1`：当前无身份 Observation + 本局此前全部 action/result/effects/state diff；不摘要、不截断，禁止跨局记录 |
 | 运行审计 | model revision、sampling、总墙钟、请求-action 关联、故障归属、输入/输出 Token 和延迟；不估算金额 |
 | Replay | 生成、校验并 hash 只含结构化事实的 `replay.json`，不混入叙事字段 |
 | 单一观众看板 | 第 1～40 天日期游标、五模型状态、完整动作、排名、曲线、事件、DNF 与核心终局 |
@@ -1893,7 +1892,7 @@ P0 明确不做：程序化高光、采访、奖项、结局、娱乐解说、�
 - 自动拉起或连接外部 MCP Host 的进程桥；
 - Agent 单人故事页和更多分享卡样式。
 
-## 23.4 P2：扩展
+## 23.4 P2：扩展（冻结）
 
 - 用户提交 Agent；
 - 自定义人格；
@@ -1937,7 +1936,7 @@ Agent 间直接交互和共享市场不得进入 P0。公开发布、公开榜�
 3. 五个 Probe 并行各请求一次，无自动重试且全部尝试；
 4. 严格解析并在独立初始环境执行一次 `GameAction`；
 5. 正式验收保存脱敏 Probe 摘要；
-6. 原始交换由开关写入独立 Git 忽略目录，代码默认关闭、开发 `.env` 开启。
+6. 原始交换由开关写入独立 Git 忽略目录，代码和 `.env.example` 默认关闭；实现过程不修改真实本地 `.env`。
 
 交付标准：Probe 不启动比赛、不写比赛产物；五家全部通过后才允许显式开始正式比赛。
 
@@ -1945,7 +1944,7 @@ Agent 间直接交互和共享市场不得进入 P0。公开发布、公开榜�
 
 1. 创建五个隔离 episode；
 2. 实现受控并发、统一决策/动作/输出预算、单次超时、总墙钟和错误隔离；
-3. 实现程序历史摘要和覆盖实际完整发送内容的上下文 hash；
+3. 实现 `full-history-v1` 全历史上下文和覆盖实际完整发送内容的上下文 hash；
 4. 记录 model revision、sampling parameters、输入/输出 Token 和延迟；
 5. 建立每个请求与 action 的逐条关联；
 6. 区分平台、Provider、模型、协议和 Runner 故障归属；
@@ -2037,8 +2036,8 @@ strict MCP Adapter、外部 Host episode 和 MCP Host 编排必须在 P0/P0.5 �
 
 同时验证：
 
-- 历史摘要只包含白名单字段，字符上限和最近工具条数固定；
-- 完整上下文 hash 覆盖系统指令、Observation、程序摘要和最近工具结果；
+- 第六次及后续请求仍包含本局此前全部 action、result、effects 和 state diff，且不包含旧 Observation；
+- 完整上下文 hash 覆盖系统指令、当前 Observation 和全部历史事实，并可由产物独立重算；
 - 下一场 Runner 使用全新 session，不读取任何前轮事实结果或 Enrichment；
 - 通用 Enrichment 第六模型配置与五组 Runner 的 `Provider + model` 均不重复；
 - P0.5 采访使用选手原模型的新 session，只包含该选手截至采访日的事实；

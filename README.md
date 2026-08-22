@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。当前源码和 2026-08-21 的 `run-001` 仍是已验收的四槽历史实现；修订后的 P0 目标是五个不同的 `Provider + Model` 组合同时参赛，在相同中性策略、规则与预算下各自完成一局 40 天比赛，并生成可校验 Replay、Trace、运行报告和单文件离线观众页。五模型支持尚未实现，不能用四槽命令或 `run-001` 代替新版 P0 验收。
+当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；真实五 Provider Probe、三场新版金样和自动浏览器验收尚未执行，因此当前状态是“待办 1 已实现并通过离线验证”，不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 
@@ -14,20 +14,18 @@
 五组不可重复的 Provider + Model 配置
 → 五次 Provider Probe 与脱敏摘要
 → 五模型 Direct 真实比赛
-→ replay.json / episode-traces.json / run-report.json
+→ probe-summary.json / replay.json / episode-traces.json / run-report.json
 → 自动生成单文件 replay.html
 → 第 1～40 天事实回放
 ```
 
-P0 至少完成 3 场新版五模型 Direct 比赛。游戏内死亡、破产或技术 DNF 都可以是如实记录的比赛结果，不要求五个 Agent 都存活到第 40 天；未解释的中断不能作为通过。五个参赛组合必须各自配置，且 `Provider + Model` 组合不能完全重复。slot 轮换保留为可配置选项。
+P0 至少完成 3 场新版五模型 Direct 比赛。游戏内死亡、破产或技术 DNF 都可以是如实记录的比赛结果，不要求五个 Agent 都存活到第 40 天；未解释的中断不能作为通过。五个参赛组合必须各自配置，且归一化后的 `Provider + Model` 组合不能重复。slot 采用 `cyclic-v1`，由 `ARENA_SLOT_ROTATION_INDEX=0..4` 配置轮换。
 
-Runner 只负责事实比赛：所有参赛模型使用同一版本化中性策略和无身份观察，不接收展示名称、persona、slot、Provider、model、episode ID、审计 hash、叙事内容或历史轮次结论。公共市场共享 seed，个人随机事件按 slot 隔离。技术 DNF 只影响对应 Agent，其他 Agent 继续；DNF 保留原始随机事件计数，但不参与“最幸运/最倒霉”判断。正式 UI 的参赛者身份只显示 `Provider + Model`，不显示 A/B/C/D 或策略化名称。
+Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `full-history-v1`。每次请求包含固定系统指令、当前 Observation，以及本局此前全部 action、result、effects 和 state diff；不发送旧 Observation、不摘要、不截断，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。公共市场共享 seed，个人随机事件按 slot 隔离。技术 DNF 只影响对应 Agent，其他 Agent 继续。正式 UI 只显示 `Provider + Model`，Day 40 只展示正式排名、DNF 与个人随机事件原始计数。
 
 Arena 工具链要求 Node.js 22.18 或更高版本。离线测试使用 Fake Provider/Fake Fetch；测试通过不等于真实 Provider 已在线验收。
 
-### 当前可执行命令：四槽历史实现
-
-以下命令准确描述当前源码，仍只读取 A/B/C/D 四组配置。它们可用于维护和历史产物重建，但在五槽实现完成前不能产生新版 P0 验收结果。
+### 当前五模型命令
 
 ```bash
 npm ci
@@ -39,17 +37,17 @@ npm --prefix web run typecheck
 npm run arena:direct -- --help
 npm run arena:direct -- --check-config
 
-# 恰好请求 A/B/C/D 各一次；本 flag 本身就是四次在线请求授权
-npm run arena:direct -- --probe-providers
+# 恰好并行请求 A...E 各一次，并原子写入指定目录的 probe-summary.json
+npm run arena:direct -- --output-dir <new-output-directory> --probe-providers
 
-# Probe 全部通过后，另行显式启动当前四槽比赛；必须使用新目录
-npm run arena:direct -- --output-dir <new-output-directory> --confirm-live-run
+# 同目录存在配置匹配、全部通过的最新 Probe 摘要后，显式启动比赛
+npm run arena:direct -- --output-dir <same-output-directory> --confirm-live-run
 
-# 只从既有 Replay 重建 HTML，不再次调用模型
-npm run arena:replay -- --input dist/arena-direct/run-001/replay.json
+# 只从五模型 arena-schema-v3 Replay 重建 HTML，不再次调用模型
+npm run arena:replay -- --input <replay.json>
 ```
 
-当前 Direct Runner 默认读取仓库根目录的本地 `.env`，并使用 `ARENA_AGENT_A/B/C/D_*` 四组配置。目标实现将扩展为五组不可重复的参赛配置，但现阶段不要把未支持的第五组写成“已经可运行”。Provider 协议、当前命令、五模型目标契约、诊断边界和恢复构建方式见 [Direct Arena 运行说明](docs/arena-direct.md)。
+Direct Runner 默认读取仓库根目录的本地 `.env`，使用 `ARENA_AGENT_A...E_*` 五组本地配置；A–E 只是配置入口，不是公开身份。每组可声明 `MODEL_REVISION`，全场可覆盖总墙钟、轮换和输出预算。Probe 摘要的配置指纹不包含 API Key 或其 hash，因此只更换 API Key 无法由门禁识别，需由操作者主动重新 Probe。完整 Provider 协议、审计、诊断和恢复构建边界见 [Direct Arena 运行说明](docs/arena-direct.md)。
 
 Scripted 模式只保留为内部确定性回归工具，不属于产品范围、P0 验收或用户运行主流程。strict MCP 移入 P1；当前 legacy MCP 入口不迁移、不扩建，也不属于 Direct P0。
 
@@ -61,7 +59,7 @@ Scripted 模式只保留为内部确定性回归工具，不属于产品范围�
 
 已完成一次四 Provider Probe 和一次真实受控展示赛：四个槽位均实际收到请求；OpenAI、Anthropic 和 DeepSeek 得到有效比赛结果，Kimi 在 Day 1 超时后仅对应槽位技术 DNF，其他三局继续结算。Replay、Trace、运行报告和离线 HTML 均已生成并完成 Day 1/39/40 浏览器验收。该结论是四槽历史基线，只对应本次具名配置与本地产物，不满足修订后的五模型 P0，也不表示未来凭据、模型或网关无需重新 Probe。完整数字、hash、浏览器证据和已知延迟统计限制见 [2026-08-21 真实验收记录](docs/arena-direct-acceptance-2026-08-21.md)。
 
-正式页面没有模拟 fallback；缺少或无法验证 Replay 时会直接停止展示。当前四模型纵向切片的历史边界见 [Direct-only Arena v0 说明](docs/arena-v0.md)。下一交付目标仅限本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。具体工具品牌不是硬要求，但 P0 必须具备可重复的自动浏览器验收，并同时保留单文件 `file://` 断网验收。
+正式页面没有模拟 fallback；缺少或无法验证五模型 `arena-schema-v3` Replay 时会直接停止展示。新版正式构建器拒绝 v2 和四模型 Replay，历史 `run-001` 的 JSON、hash、报告和 HTML 保持原样，但不再保证可由当前 `arena:replay` 重建。历史边界见 [Direct-only Arena v0 说明](docs/arena-v0.md)。下一交付目标仅限本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。具体工具品牌不是硬要求，但 P0 必须具备可重复的自动浏览器验收，并同时保留单文件 `file://` 断网验收。
 
 ## Legacy OpenClaw / MCP（非当前 Direct P0）
 
@@ -102,7 +100,7 @@ OpenClaw 已经有了自己的社交平台 [Moltbook](https://github.com/anthrop
 
 ### 前置条件
 
-- Node.js >= 18
+- Node.js >= 22.18.0（与当前 Arena 主包 engine 保持一致）
 - npm
 
 ### 步骤

@@ -71,7 +71,7 @@ button:disabled { opacity: .35; cursor: default; }
 .agent-card.exited { opacity: .75; }
 .agent-card.dnf { border-left: 3px solid #ff7e72; }
 .rank-mark { color: var(--agent-color); font: 700 17px "SFMono-Regular", monospace; }
-.agent-letter { display: grid; place-items: center; width: 38px; height: 38px; border: 1px solid color-mix(in srgb, var(--agent-color) 70%, transparent); color: var(--agent-color); font-weight: 800; }
+.agent-mark { display: block; width: 38px; height: 38px; border: 1px solid color-mix(in srgb, var(--agent-color) 75%, transparent); background-image: var(--agent-texture); background-size: 10px 10px; }
 .agent-identity { display: grid; gap: 3px; min-width: 0; }
 .agent-identity b { font-size: 15px; }
 .agent-identity small { overflow: hidden; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
@@ -85,10 +85,9 @@ button:disabled { opacity: .35; cursor: default; }
 .panel-note { margin: 0; padding: 11px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; line-height: 1.5; }
 
 .actions-panel, .chart-panel, .sealed-panel, .finale-panel { grid-column: 1 / -1; }
-.action-groups { display: grid; grid-template-columns: repeat(2, 1fr); }
+.action-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
 .action-group { --agent-color: #fff; min-width: 0; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); }
-.action-group:nth-child(2n) { border-right: 0; }
-.action-group:nth-last-child(-n+2) { border-bottom: 0; }
+.action-group:last-child { border-right: 0; }
 .action-group > header { display: flex; justify-content: space-between; gap: 10px; padding: 12px 14px; border-bottom: 1px solid var(--line); color: var(--agent-color); }
 .action-group > header span { color: var(--muted); font-size: 11px; }
 .action-group ol { margin: 0; padding: 0; list-style: none; }
@@ -119,13 +118,12 @@ button:disabled { opacity: .35; cursor: default; }
 .final-table strong { text-align: right; }
 .final-table i { color: var(--muted); font-size: 12px; font-style: normal; text-align: right; }
 .final-table .dnf { background: rgba(142, 33, 33, .1); }
-.luck-audit { padding: 18px; }
-.luck-audit header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
-.luck-audit header span { color: var(--muted); font-size: 12px; }
-.luck-audit > div { --agent-color: #fff; display: grid; grid-template-columns: 34px 100px 100px 1fr; gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
-.luck-audit > div b { color: var(--agent-color); }
-.luck-audit > div small { color: var(--muted); }
-.luck-audit > p { margin: 15px 0 0; color: var(--gold); font-weight: 700; }
+.personal-event-audit { padding: 18px; }
+.personal-event-audit header { display: flex; justify-content: space-between; gap: 16px; margin-bottom: 12px; }
+.personal-event-audit header span { color: var(--muted); font-size: 12px; }
+.personal-event-audit > div { --agent-color: #fff; display: grid; grid-template-columns: minmax(220px, 1fr) 100px 100px minmax(280px, 1.5fr); gap: 12px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.personal-event-audit > div b { color: var(--agent-color); }
+.personal-event-audit > div small { color: var(--muted); }
 
 .arena-shell > footer { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-top: 14px; padding: 14px 18px; border: 1px solid var(--line); background: rgba(8, 14, 17, .9); color: var(--muted); font-size: 11px; }
 
@@ -181,9 +179,9 @@ button:disabled { opacity: .35; cursor: default; }
   .compact-metrics, .exit-line { grid-column: 1 / -1; }
   .final-table > div { grid-template-columns: 50px 1fr; }
   .final-table strong, .final-table i { grid-column: 2; text-align: left; }
-  .luck-audit > div { grid-template-columns: 30px 1fr 1fr; }
-  .luck-audit > div small { grid-column: 2 / -1; }
-  .luck-audit header, .arena-shell > footer { align-items: flex-start; flex-direction: column; }
+  .personal-event-audit > div { grid-template-columns: 1fr 1fr; }
+  .personal-event-audit > div b, .personal-event-audit > div small { grid-column: 1 / -1; }
+  .personal-event-audit header, .arena-shell > footer { align-items: flex-start; flex-direction: column; }
   .modal-metrics { grid-template-columns: repeat(2, 1fr); }
   .modal-metrics div:nth-child(3n) { border-right: 1px solid var(--line); }
   .modal-metrics div:nth-child(2n) { border-right: 0; }

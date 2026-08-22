@@ -1,20 +1,31 @@
 {
-  "name": "beijing-fushengji-mcp",
+  "name": "beijing-fushengji-arena",
   "version": "1.0.0",
-  "description": "北京浮生记 - AI Agent MCP Game Server",
+  "description": "北京浮生记 - 五模型 Direct Arena Runner",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/arena-entry.js",
+  "exports": {
+    ".": "./dist/arena-entry.js",
+    "./arena": "./dist/arena/index.js",
+    "./core": "./dist/core/index.js",
+    "./legacy-mcp": "./dist/index.js"
+  },
   "bin": {
-    "beijing-fushengji": "dist/index.js"
+    "beijing-fushengji-arena": "dist/arena-direct-cli.js",
+    "beijing-fushengji-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=22.18.0"
   },
   "scripts": {
     "build": "tsc",
-    "start": "node dist/index.js",
-    "arena:sample": "npm run build && node dist/arena-cli.js --replay-only --output dist/arena-demo/replay.json",
+    "start": "node dist/arena-direct-cli.js",
+    "start:mcp": "node dist/index.js",
+    "internal:arena:sample": "npm run build && node dist/arena-cli.js --replay-only --output dist/arena-demo/replay.json",
     "arena:direct": "node scripts/run-arena-direct.mjs --",
     "arena:replay": "node scripts/build-arena-replay.mjs",
     "model:list": "node tools/model-list-query/query-models.mjs",
-    "build:arena": "node scripts/build-arena-demo.mjs",
+    "internal:build:arena": "node scripts/build-arena-demo.mjs",
     "test:arena-core": "npm run build && node --test tests/core/*.test.mjs",
     "test:arena-web": "npm --prefix web test",
     "test:arena": "npm run test:arena-core && npm run test:arena-web"

@@ -85,7 +85,8 @@ test("same config and action trace are byte-for-byte deterministic", () => {
   assert.deepEqual(firstTrace, secondTrace);
   assert.equal(firstTrace.traceHash, integrityHash((({ traceHash: _, ...body }) => body)(firstTrace)));
   assert.ok(firstTrace.events.every(event => event.id === event.evidenceId));
-  assert.ok(firstTrace.events.every(event => event.contextHash.startsWith("sha256:")));
+  assert.ok(firstTrace.events.every(event => event.observationHash.startsWith("sha256:")));
+  assert.ok(firstTrace.events.every(event => event.fullContextHash === undefined));
 });
 
 test("observe and invalid calls do not consume public randomness", () => {
@@ -163,9 +164,11 @@ test("sample runner emits four 40-day traces and a stable recoverable replay", a
   assert.ok(first.replay.eventHash.startsWith("sha256:"));
   assert.ok(first.replay.factHash.startsWith("sha256:"));
   assert.equal(first.replay.competitionAudit, undefined);
-  assert.equal(first.replay.luckAudit.basis, "personal-event-count-v1");
-  assert.equal(first.replay.luckAudit.revealDay, 40);
-  assert.equal(first.replay.luckAudit.agents.length, 4);
+  assert.equal(first.replay.schemaVersion, "arena-schema-v3");
+  assert.equal(first.replay.personalRandomEventAudit.basis, "personal-event-count-v1");
+  assert.equal(first.replay.personalRandomEventAudit.revealDay, 40);
+  assert.equal(first.replay.personalRandomEventAudit.agents.length, 4);
+  assert.equal("luckiestAgentIds" in first.replay.personalRandomEventAudit, false);
   for (const trace of first.traces) {
     const evidence = new Map();
     for (const event of trace.events) {
@@ -188,7 +191,7 @@ test("sample runner emits four 40-day traces and a stable recoverable replay", a
       if (adverse) expected.adverse++;
       else if (gift) expected.favorable++;
     }
-    const actual = first.replay.luckAudit.agents.find(agent => agent.agentId === trace.agentId);
+    const actual = first.replay.personalRandomEventAudit.agents.find(agent => agent.agentId === trace.agentId);
     assert.equal(actual.adverseEvents, expected.adverse);
     assert.equal(actual.favorableEvents, expected.favorable);
   }

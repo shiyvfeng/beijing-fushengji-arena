@@ -7,17 +7,22 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  renameSync,
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnv } from "node:util";
-import {
-  DEFAULT_DIRECT_AGENT_SPECS,
-  DirectModelDriver,
-} from "./arena/direct-driver.js";
+import type { RawExchangeRecorder } from "./arena/diagnostics.js";
+import { createRawExchangeRecorder } from "./arena/diagnostics.js";
+import { DEFAULT_DIRECT_AGENT_SPECS, DirectModelDriver } from "./arena/direct-driver.js";
 import { runMatch } from "./arena/match-runner.js";
-import { probeProviders } from "./arena/provider-probe.js";
+import {
+  assertMatchingProviderProbe,
+  computeProbeConfigFingerprint,
+  probeProviders,
+  type ProviderProbeResult,
+} from "./arena/provider-probe.js";
 import {
   createDirectProviderAdapter,
   normalizeAgentProviderConfig,
@@ -26,30 +31,26 @@ import {
 import { buildDirectRunReport } from "./arena/run-report.js";
 import { DEFAULT_SCENARIO } from "./core/scenario.js";
 import { findPotentialSecrets } from "./core/secret-scan.js";
+import { integrityHash } from "./core/stable-value.js";
 
-const AGENT_LETTERS = ["A", "B", "C", "D"] as const;
-const AGENT_COUNT = AGENT_LETTERS.length;
+const CONFIG_LETTERS = ["A", "B", "C", "D", "E"] as const;
+const AGENT_COUNT = CONFIG_LETTERS.length;
 const DEFAULT_MAX_ACTIONS_PER_AGENT = 160;
 const DEFAULT_DECISION_TIMEOUT_MS = 60_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 512;
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_ENV_FILE = join(REPOSITORY_ROOT, ".env");
+const DIAGNOSTICS_ROOT = join(REPOSITORY_ROOT, "dist", "arena-diagnostics");
 
-const AGENT_MODEL_OPTIONS = [
-  "--agent-a-model",
-  "--agent-b-model",
-  "--agent-c-model",
-  "--agent-d-model",
-] as const;
-
-const AGENT_ENV_NAMES = AGENT_LETTERS.flatMap(letter => [
+const AGENT_MODEL_OPTIONS = CONFIG_LETTERS.map(letter => `--agent-${letter.toLowerCase()}-model`);
+const AGENT_ENV_NAMES = CONFIG_LETTERS.flatMap(letter => [
   `ARENA_AGENT_${letter}_PROVIDER`,
   `ARENA_AGENT_${letter}_BASE_URL`,
   `ARENA_AGENT_${letter}_API_KEY`,
   `ARENA_AGENT_${letter}_MODEL`,
+  `ARENA_AGENT_${letter}_MODEL_REVISION`,
   `ARENA_AGENT_${letter}_THINKING`,
 ]);
-
 const ENV_FILE_ALLOWLIST = new Set<string>([
   ...AGENT_ENV_NAMES,
   "ARENA_OUTPUT_DIR",
@@ -57,7 +58,10 @@ const ENV_FILE_ALLOWLIST = new Set<string>([
   "ARENA_SEED",
   "ARENA_MAX_ACTIONS_PER_AGENT",
   "ARENA_DECISION_TIMEOUT_MS",
+  "ARENA_TOTAL_WALL_CLOCK_MS",
   "ARENA_MAX_OUTPUT_TOKENS",
+  "ARENA_SLOT_ROTATION_INDEX",
+  "ARENA_SAVE_RAW_EXCHANGES",
 ]);
 
 interface DirectCliOptions {
@@ -67,7 +71,10 @@ interface DirectCliOptions {
   readonly outputDir?: string;
   readonly maxActionsPerAgent: number;
   readonly decisionTimeoutMs: number;
+  readonly totalWallClockMs: number;
   readonly maxOutputTokens: number;
+  readonly slotRotationIndex: number;
+  readonly saveRawExchanges: boolean;
   readonly confirmLiveRun: boolean;
   readonly checkConfig: boolean;
   readonly probeProviders: boolean;
@@ -80,6 +87,7 @@ interface EnvFileSelection {
 }
 
 interface ArtifactTargets {
+  readonly probe: string;
   readonly replay: string;
   readonly traces: string;
   readonly report: string;
@@ -88,41 +96,33 @@ interface ArtifactTargets {
 
 function usage(): string {
   return [
-    "北京浮生记 Arena · Multi-Provider Direct Model Runner",
+    "北京浮生记 Arena · 五模型 Direct Runner",
     "",
     "用法：",
-    "  npm run arena:direct -- --probe-providers",
-    "  npm run arena:direct -- --output-dir <目录> --confirm-live-run",
+    "  npm run arena:direct -- --probe-providers --output-dir <目录>",
+    "  npm run arena:direct -- --output-dir <同一目录> --confirm-live-run",
     "",
-    "每个 Agent 在 .env 中独立配置 Provider、端点、凭据与模型：",
-    "  ARENA_AGENT_A_PROVIDER           gpt/openai、claude/anthropic、deepseek、qwen、kimi 或 openai-compatible",
-    "  ARENA_AGENT_A_BASE_URL           API base URL；Runner 按 provider 追加正确 endpoint",
-    "  ARENA_AGENT_A_API_KEY            仅从环境读取，不接受命令行参数",
-    "  ARENA_AGENT_A_MODEL              该 Agent 使用的模型 ID",
-    "  ARENA_AGENT_A_THINKING           可选：default/disabled/enabled；仅 DeepSeek，默认 disabled",
-    "  Agent B/C/D 使用相同命名规则。",
+    "必须配置 ARENA_AGENT_A...E 的 PROVIDER、BASE_URL、API_KEY、MODEL。",
+    "可选 MODEL_REVISION 与 THINKING；凭据只从环境或 env 文件读取。",
     "",
-    "协议映射：",
-    "  gpt/openai → OpenAI Responses",
-    "  claude/anthropic → Anthropic Messages",
-    "  deepseek/qwen/kimi/openai-compatible → OpenAI-compatible Chat Completions",
+    "可选参数：",
+    "  --env-file <路径>",
+    "  --agent-a-model <模型 ID>         A...E 均支持临时模型覆盖",
+    "  --output-dir <目录>               Probe 与比赛均必须指定",
+    "  --match-id <ID>",
+    "  --seed <整数>",
+    "  --max-actions-per-agent <40..320>",
+    "  --decision-timeout-ms <1..600000>",
+    "  --total-wall-clock-ms <1..2147483647>",
+    "  --max-output-tokens <16..4096>",
+    "  --slot-rotation-index <0..4>",
+    "  --probe-providers                 五组并行各请求一次并原子写 probe-summary.json",
+    "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe 门禁",
+    "  --check-config                    脱敏检查，不联网、不写产物",
+    "  --help",
     "",
-    "可选：",
-    "  --env-file <路径>                 默认读取仓库根目录 .env；显式指定后文件必须存在",
-    "  --agent-a-model <模型 ID>         临时覆盖 Agent A 的模型（B/C/D 同理）",
-    "  --output-dir <目录>               也可用 ARENA_OUTPUT_DIR",
-    "  --match-id <ID>                   也可用 ARENA_MATCH_ID；默认 arena-direct-<seed>",
-    "  --seed <整数>                     也可用 ARENA_SEED（默认 20260820）",
-    "  --max-actions-per-agent <40..320> 也可用 ARENA_MAX_ACTIONS_PER_AGENT（默认 160）",
-    "  --decision-timeout-ms <1..600000> 也可用 ARENA_DECISION_TIMEOUT_MS（默认 60000）",
-    "  --max-output-tokens <16..4096>    也可用 ARENA_MAX_OUTPUT_TOKENS（默认 512）",
-    "  --confirm-live-run                每次完整真实比赛都必须显式确认",
-    "  --probe-providers                 恰好并行请求 A/B/C/D 各一次；不继续比赛、不写产物",
-    "  --check-config                    显示脱敏配置，不联网、不写产物",
-    "  --help                            显示帮助，不读取 .env、不发起请求",
-    "",
-    `默认最坏请求数：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT}。`,
-    "Probe 与完整比赛都不自动重试；Provider、模型、计费与配额由调用者在运行前确认。",
+    `默认最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT}；自动重试为 0。`,
+    "ARENA_SAVE_RAW_EXCHANGES 默认为 false；开启后诊断只写 dist/arena-diagnostics。",
   ].join("\n");
 }
 
@@ -136,7 +136,6 @@ function extractEnvFile(args: readonly string[]): EnvFileSelection {
   const remaining: string[] = [];
   let selectedPath = DEFAULT_ENV_FILE;
   let explicit = false;
-
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
     if (argument !== "--env-file") {
@@ -148,7 +147,6 @@ function extractEnvFile(args: readonly string[]): EnvFileSelection {
     explicit = true;
     index++;
   }
-
   return { args: remaining, path: selectedPath, explicit };
 }
 
@@ -157,7 +155,6 @@ function loadEnvFile(path: string, explicit: boolean): void {
     if (explicit) throw new Error("指定的 --env-file 不存在");
     return;
   }
-
   let source: string;
   try {
     source = readFileSync(path, "utf8");
@@ -167,19 +164,26 @@ function loadEnvFile(path: string, explicit: boolean): void {
   if (source.length > 1_048_576 || source.includes("\0")) {
     throw new Error("env 文件过大或包含无效字符");
   }
-
   let parsed: Record<string, string | undefined>;
   try {
     parsed = parseEnv(source.replace(/^\uFEFF/u, ""));
   } catch {
     throw new Error("env 文件格式无效");
   }
-
   for (const [name, value] of Object.entries(parsed)) {
-    if (ENV_FILE_ALLOWLIST.has(name)
-      && value !== undefined
-      && process.env[name] === undefined) {
+    if (name.startsWith("ARENA_AGENT_") && !ENV_FILE_ALLOWLIST.has(name)) {
+      throw new Error("Direct Runner 只接受 ARENA_AGENT_A...E 的已知配置字段");
+    }
+    if (ENV_FILE_ALLOWLIST.has(name) && value !== undefined && process.env[name] === undefined) {
       process.env[name] = value;
+    }
+  }
+}
+
+function rejectUnknownAgentEnvironment(): void {
+  for (const name of Object.keys(process.env)) {
+    if (name.startsWith("ARENA_AGENT_") && !ENV_FILE_ALLOWLIST.has(name)) {
+      throw new Error("Direct Runner 只接受 ARENA_AGENT_A...E 的已知配置字段");
     }
   }
 }
@@ -192,6 +196,14 @@ function parseInteger(value: string, option: string, minimum: number, maximum: n
   return parsed;
 }
 
+function parseBoolean(value: string | undefined, name: string): boolean {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) return false;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  throw new Error(`${name} 仅支持 true/false、1/0、yes/no 或 on/off`);
+}
+
 function validatePublicIdentifier(value: string, name: string): string {
   const normalized = value.trim();
   if (!/^[A-Za-z0-9][A-Za-z0-9._:/@+\-]{0,255}$/u.test(normalized)) {
@@ -199,6 +211,14 @@ function validatePublicIdentifier(value: string, name: string): string {
   }
   if (findPotentialSecrets({ value: normalized }).length > 0) {
     throw new Error(`${name} 疑似包含凭据，已拒绝`);
+  }
+  return normalized;
+}
+
+function validateMatchId(value: string): string {
+  const normalized = value.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(normalized)) {
+    throw new Error("matchId 只能包含字母、数字、点、下划线和连字符");
   }
   return normalized;
 }
@@ -216,43 +236,21 @@ function validateOutputDirectory(value: string): string {
 }
 
 function parseArgs(args: readonly string[]): DirectCliOptions | null {
-  const envInteger = (
-    name: string,
-    fallback: number,
-    minimum: number,
-    maximum: number,
-  ): number => {
+  rejectUnknownAgentEnvironment();
+  const envInteger = (name: string, fallback: number, minimum: number, maximum: number): number => {
     const value = process.env[name]?.trim();
     return value ? parseInteger(value, name, minimum, maximum) : fallback;
   };
-
-  let seed = envInteger(
-    "ARENA_SEED",
-    20_260_820,
-    Number.MIN_SAFE_INTEGER,
-    Number.MAX_SAFE_INTEGER,
-  );
-  const agentCliModels = ["", "", "", ""];
+  let seed = envInteger("ARENA_SEED", 20_260_820, Number.MIN_SAFE_INTEGER, Number.MAX_SAFE_INTEGER);
+  const agentCliModels = new Array<string>(AGENT_COUNT).fill("");
   let matchId = process.env.ARENA_MATCH_ID?.trim() ?? "";
   let outputDir = process.env.ARENA_OUTPUT_DIR?.trim() ?? "";
-  let maxActionsPerAgent = envInteger(
-    "ARENA_MAX_ACTIONS_PER_AGENT",
-    DEFAULT_MAX_ACTIONS_PER_AGENT,
-    40,
-    320,
-  );
-  let decisionTimeoutMs = envInteger(
-    "ARENA_DECISION_TIMEOUT_MS",
-    DEFAULT_DECISION_TIMEOUT_MS,
-    1,
-    600_000,
-  );
-  let maxOutputTokens = envInteger(
-    "ARENA_MAX_OUTPUT_TOKENS",
-    DEFAULT_MAX_OUTPUT_TOKENS,
-    16,
-    4_096,
-  );
+  let maxActionsPerAgent = envInteger("ARENA_MAX_ACTIONS_PER_AGENT", DEFAULT_MAX_ACTIONS_PER_AGENT, 40, 320);
+  let decisionTimeoutMs = envInteger("ARENA_DECISION_TIMEOUT_MS", DEFAULT_DECISION_TIMEOUT_MS, 1, 600_000);
+  let totalWallClockOverride = process.env.ARENA_TOTAL_WALL_CLOCK_MS?.trim() ?? "";
+  let maxOutputTokens = envInteger("ARENA_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 16, 4_096);
+  let slotRotationIndex = envInteger("ARENA_SLOT_ROTATION_INDEX", 0, 0, 4);
+  const saveRawExchanges = parseBoolean(process.env.ARENA_SAVE_RAW_EXCHANGES, "ARENA_SAVE_RAW_EXCHANGES");
   let confirmLiveRun = false;
   let checkConfig = false;
   let probeProviderConnections = false;
@@ -272,9 +270,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
       probeProviderConnections = true;
       continue;
     }
-    const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(
-      argument as (typeof AGENT_MODEL_OPTIONS)[number],
-    );
+    const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(argument);
     if (agentModelIndex >= 0) {
       agentCliModels[agentModelIndex] = readValue(args, index, argument);
       index++;
@@ -305,49 +301,62 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
       index++;
       continue;
     }
+    if (argument === "--total-wall-clock-ms") {
+      totalWallClockOverride = readValue(args, index, argument);
+      index++;
+      continue;
+    }
     if (argument === "--max-output-tokens") {
       maxOutputTokens = parseInteger(readValue(args, index, argument), argument, 16, 4_096);
+      index++;
+      continue;
+    }
+    if (argument === "--slot-rotation-index") {
+      slotRotationIndex = parseInteger(readValue(args, index, argument), argument, 0, 4);
       index++;
       continue;
     }
     throw new Error("存在未知参数；请运行 --help 查看支持的选项");
   }
 
-  const agents = AGENT_LETTERS.map((letter, slot) => {
+  const totalWallClockMs = totalWallClockOverride
+    ? parseInteger(totalWallClockOverride, "total wall clock", 1, 2_147_483_647)
+    : maxActionsPerAgent * decisionTimeoutMs;
+  const agents = CONFIG_LETTERS.map((letter, entryIndex) => {
     const prefix = `ARENA_AGENT_${letter}`;
     const provider = process.env[`${prefix}_PROVIDER`]?.trim() ?? "";
     const baseUrl = process.env[`${prefix}_BASE_URL`]?.trim() ?? "";
     const apiKey = process.env[`${prefix}_API_KEY`]?.trim() ?? "";
     const thinkingMode = process.env[`${prefix}_THINKING`]?.trim();
-    const rawModel = agentCliModels[slot].trim()
-      || process.env[`${prefix}_MODEL`]?.trim()
-      || "";
-    if (!provider) throw new Error(`Agent ${letter} 缺少 ${prefix}_PROVIDER`);
-    if (!baseUrl) throw new Error(`Agent ${letter} 缺少 ${prefix}_BASE_URL`);
-    if (!rawModel) throw new Error(`Agent ${letter} 缺少 ${prefix}_MODEL`);
-    if (/[\r\n\0]/u.test(apiKey)) throw new Error(`Agent ${letter} API Key 格式无效`);
+    const modelRevision = process.env[`${prefix}_MODEL_REVISION`]?.trim();
+    const rawModel = agentCliModels[entryIndex].trim() || process.env[`${prefix}_MODEL`]?.trim() || "";
+    if (!provider) throw new Error(`配置 ${letter} 缺少 ${prefix}_PROVIDER`);
+    if (!baseUrl) throw new Error(`配置 ${letter} 缺少 ${prefix}_BASE_URL`);
+    if (!rawModel) throw new Error(`配置 ${letter} 缺少 ${prefix}_MODEL`);
+    if (/[\r\n\0]/u.test(apiKey)) throw new Error(`配置 ${letter} API Key 格式无效`);
     return normalizeAgentProviderConfig({
       provider,
       baseUrl,
       apiKey,
-      model: validatePublicIdentifier(rawModel, `Agent ${letter} model`),
+      model: validatePublicIdentifier(rawModel, `配置 ${letter} model`),
       maxOutputTokens,
       ...(thinkingMode ? { thinkingMode } : {}),
+      ...(modelRevision
+        ? { modelRevision: validatePublicIdentifier(modelRevision, `配置 ${letter} model revision`) }
+        : {}),
     });
   });
-
+  const identities = new Set(agents.map(agent => `${agent.provider}\0${agent.model.trim()}`));
+  if (identities.size !== AGENT_COUNT) {
+    throw new Error("归一化后的五个 Provider + model 组合必须互不重复");
+  }
   if (probeProviderConnections && (confirmLiveRun || checkConfig)) {
     throw new Error("--probe-providers 与 --confirm-live-run、--check-config 互斥");
   }
-  if (confirmLiveRun && checkConfig) {
-    throw new Error("--confirm-live-run 与 --check-config 互斥");
-  }
-  if (!outputDir && !checkConfig && !probeProviderConnections) {
-    throw new Error("完整比赛缺少 --output-dir 或 ARENA_OUTPUT_DIR");
-  }
+  if (confirmLiveRun && checkConfig) throw new Error("--confirm-live-run 与 --check-config 互斥");
+  if (!outputDir && !checkConfig) throw new Error("Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
   const validatedOutputDir = outputDir ? validateOutputDirectory(outputDir) : undefined;
-  matchId = validatePublicIdentifier(matchId || `arena-direct-${seed}`, "matchId");
-
+  matchId = validateMatchId(matchId || `arena-direct-${seed}`);
   return {
     seed,
     agents,
@@ -355,7 +364,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     ...(validatedOutputDir ? { outputDir: validatedOutputDir } : {}),
     maxActionsPerAgent,
     decisionTimeoutMs,
+    totalWallClockMs,
     maxOutputTokens,
+    slotRotationIndex,
+    saveRawExchanges,
     confirmLiveRun,
     checkConfig,
     probeProviders: probeProviderConnections,
@@ -364,6 +376,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
 
 function artifactTargets(outputDir: string): ArtifactTargets {
   return {
+    probe: join(outputDir, "probe-summary.json"),
     replay: join(outputDir, "replay.json"),
     traces: join(outputDir, "episode-traces.json"),
     report: join(outputDir, "run-report.json"),
@@ -371,77 +384,143 @@ function artifactTargets(outputDir: string): ArtifactTargets {
   };
 }
 
-function assertArtifactsDoNotExist(targets: ArtifactTargets): void {
-  const existing = Object.values(targets).filter(path => existsSync(path));
-  if (existing.length > 0) {
-    throw new Error("输出目录已有 Arena 产物；为避免覆盖，请改用新目录");
-  }
+function completedArtifacts(targets: ArtifactTargets): string[] {
+  return [targets.replay, targets.traces, targets.report, targets.html].filter(path => existsSync(path));
 }
 
-function prepareArtifactDirectory(outputDir: string, targets: ArtifactTargets): void {
+function prepareOutputDirectory(outputDir: string, targets: ArtifactTargets): void {
   try {
     mkdirSync(outputDir, { recursive: true });
     accessSync(outputDir, constants.W_OK);
   } catch {
     throw new Error("输出目录无法创建或不可写；尚未发起模型请求");
   }
-  assertArtifactsDoNotExist(targets);
+  if (completedArtifacts(targets).length > 0) {
+    throw new Error("输出目录已有比赛产物；为避免覆盖，不允许 Probe 或比赛写入");
+  }
 }
 
-function writeArtifacts(
+function atomicWriteJson(path: string, value: unknown): void {
+  const temporary = `${path}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+  renameSync(temporary, path);
+}
+
+function createConfiguredDrivers(
+  options: DirectCliOptions,
+  recorder?: RawExchangeRecorder,
+): DirectModelDriver[] {
+  return DEFAULT_DIRECT_AGENT_SPECS.map((spec, entryIndex) => {
+    const slot = (entryIndex + options.slotRotationIndex) % AGENT_COUNT;
+    const provider = createDirectProviderAdapter(options.agents[entryIndex], {
+      ...(recorder ? { exchangeRecorder: recorder } : {}),
+    });
+    return new DirectModelDriver({ id: spec.id, slot, provider });
+  });
+}
+
+function probeFingerprint(options: DirectCliOptions, drivers: readonly DirectModelDriver[]): string {
+  return computeProbeConfigFingerprint({
+    matchId: options.matchId,
+    seed: options.seed,
+    scenario: DEFAULT_SCENARIO,
+    agents: drivers.map((driver, entryIndex) => ({
+      entryIndex,
+      provider: driver.descriptor.provider!,
+      model: driver.descriptor.model!,
+      providerAdapterVersion: driver.descriptor.providerAdapterVersion!,
+      endpointFingerprint: integrityHash({
+        provider: options.agents[entryIndex].provider,
+        baseUrl: options.agents[entryIndex].baseUrl,
+      }),
+      declaredModelRevision: options.agents[entryIndex].modelRevision ?? null,
+      thinkingMode: options.agents[entryIndex].thinkingMode,
+    })),
+    maxActionsPerAgent: options.maxActionsPerAgent,
+    decisionTimeoutMs: options.decisionTimeoutMs,
+    totalWallClockMs: options.totalWallClockMs,
+    maxOutputTokens: options.maxOutputTokens,
+    slotRotationIndex: options.slotRotationIndex,
+  });
+}
+
+function configurationSummary(options: DirectCliOptions): string {
+  const agentLines = options.agents.flatMap((config, index) => [
+    `  本地配置 ${CONFIG_LETTERS[index]} → competitor-${index + 1}, slot ${(index + options.slotRotationIndex) % 5}`,
+    `    Provider + Model: ${config.provider} + ${config.model}`,
+    `    Base URL: ${config.baseUrl}`,
+    ...(config.modelRevision ? [`    Model revision: ${config.modelRevision}`] : []),
+    ...(config.provider === "deepseek" ? [`    Thinking: ${config.thinkingMode}`] : []),
+    `    API Key: ${config.apiKey ? "已配置（不显示）" : "未配置"}`,
+  ]);
+  return [
+    "Direct 五模型配置：",
+    `  matchId: ${options.matchId}`,
+    ...agentLines,
+    ...(options.outputDir ? [`  输出目录: ${options.outputDir}`] : []),
+    `  slot 轮换: cyclic-v1 / ${options.slotRotationIndex}`,
+    `  单次决策时限: ${options.decisionTimeoutMs} ms`,
+    `  每 Agent 总墙钟: ${options.totalWallClockMs} ms`,
+    `  单次输出上限: ${options.maxOutputTokens} tokens`,
+    `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
+    "  自动重试: 0",
+  ].join("\n");
+}
+
+function assertKeysConfigured(options: DirectCliOptions): void {
+  const missing = options.agents
+    .map((agent, index) => agent.apiKey ? "" : CONFIG_LETTERS[index])
+    .filter(Boolean);
+  if (missing.length) throw new Error(`配置 ${missing.join("/")} 缺少独立 API Key`);
+}
+
+function createRecorder(options: DirectCliOptions, phase: "probe" | "match") {
+  return createRawExchangeRecorder({
+    enabled: options.saveRawExchanges,
+    diagnosticsRoot: DIAGNOSTICS_ROOT,
+    matchId: options.matchId,
+    phase,
+    secrets: options.agents.map(agent => agent.apiKey),
+  });
+}
+
+function readMatchingProbe(targets: ArtifactTargets, fingerprint: string): ProviderProbeResult {
+  if (!existsSync(targets.probe)) {
+    throw new Error("完整比赛前必须在同一输出目录完成 Provider Probe");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(targets.probe, "utf8")) as unknown;
+  } catch {
+    throw new Error("probe-summary.json 无法读取或解析");
+  }
+  assertMatchingProviderProbe(parsed, fingerprint);
+  return parsed;
+}
+
+function writeMatchArtifacts(
   options: DirectCliOptions,
   output: Awaited<ReturnType<typeof runMatch>>,
+  probe: ProviderProbeResult,
   targets: ArtifactTargets,
 ): void {
-  assertArtifactsDoNotExist(targets);
+  if (completedArtifacts(targets).length > 0) throw new Error("比赛产物已存在，拒绝覆盖");
   const report = buildDirectRunReport({
     matchId: options.matchId,
     seed: options.seed,
     maxActionsPerAgent: options.maxActionsPerAgent,
     decisionTimeoutMs: options.decisionTimeoutMs,
+    totalWallClockMs: options.totalWallClockMs,
     maxOutputTokens: options.maxOutputTokens,
+    probeSummaryHash: probe.probeSummaryHash,
+    probeCreatedAt: probe.createdAt,
   }, output);
-  if (findPotentialSecrets(report).length > 0) {
-    throw new Error("运行报告包含疑似凭据，已拒绝写入");
+  for (const [label, artifact] of [["Replay", output.replay], ["Trace", output.traces], ["报告", report]] as const) {
+    if (findPotentialSecrets(artifact).length > 0) throw new Error(`${label} 包含疑似凭据，已拒绝写入`);
   }
-
-  mkdirSync(dirname(targets.replay), { recursive: true });
   writeFileSync(targets.replay, `${JSON.stringify(output.replay, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
   writeFileSync(targets.traces, `${JSON.stringify(output.traces, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
   writeFileSync(targets.report, `${JSON.stringify(report, null, 2)}\n`, { encoding: "utf8", flag: "wx" });
-}
-
-function configurationSummary(options: DirectCliOptions): string {
-  const agentLines = DEFAULT_DIRECT_AGENT_SPECS.flatMap((spec, index) => {
-    const config = options.agents[index];
-    return [
-      `  Agent ${AGENT_LETTERS[index]} · ${spec.displayName}`,
-      `    Provider: ${config.provider}`,
-      `    Base URL: ${config.baseUrl}`,
-      `    Model: ${config.model}`,
-      ...(config.provider === "deepseek" ? [`    Thinking: ${config.thinkingMode}`] : []),
-      `    API Key: ${config.apiKey ? "已配置（不显示）" : "未配置"}`,
-    ];
-  });
-  return [
-    "Direct 多 Provider 对局配置：",
-    `  matchId: ${options.matchId}`,
-    ...agentLines,
-    ...(options.outputDir ? [`  输出目录: ${options.outputDir}`] : []),
-    options.probeProviders
-      ? `  本次 Provider Probe 请求: ${AGENT_COUNT}（每槽位恰好一次）`
-      : `  最多模型请求: ${AGENT_COUNT * options.maxActionsPerAgent}`,
-    `  单次决策时限: ${options.decisionTimeoutMs} ms`,
-    `  单次输出上限: ${options.maxOutputTokens} tokens`,
-    "  自动重试: 0",
-  ].join("\n");
-}
-
-function createConfiguredDrivers(options: DirectCliOptions): DirectModelDriver[] {
-  return DEFAULT_DIRECT_AGENT_SPECS.map((spec, slot) => {
-    const provider = createDirectProviderAdapter(options.agents[slot]);
-    return new DirectModelDriver({ ...spec, slot, provider });
-  });
 }
 
 function buildOfflineReplay(targets: ArtifactTargets): void {
@@ -452,13 +531,8 @@ function buildOfflineReplay(targets: ArtifactTargets): void {
     "DEEPSEEK_API_KEY",
     "DASHSCOPE_API_KEY",
     "MOONSHOT_API_KEY",
-    "ARENA_AGENT_A_API_KEY",
-    "ARENA_AGENT_B_API_KEY",
-    "ARENA_AGENT_C_API_KEY",
-    "ARENA_AGENT_D_API_KEY",
-  ]) {
-    delete buildEnvironment[credentialName];
-  }
+    ...CONFIG_LETTERS.map(letter => `ARENA_AGENT_${letter}_API_KEY`),
+  ]) delete buildEnvironment[credentialName];
   const result = spawnSync(process.execPath, [
     join(REPOSITORY_ROOT, "scripts", "build-arena-replay.mjs"),
     "--input",
@@ -472,9 +546,7 @@ function buildOfflineReplay(targets: ArtifactTargets): void {
   });
   if (result.error) throw result.error;
   if (result.status !== 0) {
-    throw new Error(
-      "比赛 JSON/Trace/Report 已安全写入，但 replay.html 构建失败；可用 arena:replay 从现有 replay.json 重试",
-    );
+    throw new Error("比赛 JSON/Trace/Report 已写入，但 replay.html 构建失败；可离线重试 arena:replay");
   }
 }
 
@@ -492,54 +564,66 @@ async function main(): Promise<void> {
     process.stdout.write(`${usage()}\n`);
     return;
   }
-
   if (options.checkConfig) {
     process.stdout.write(`${configurationSummary(options)}\n`);
     return;
   }
+  assertKeysConfigured(options);
+  if (!options.outputDir) throw new Error("缺少输出目录");
+  const targets = artifactTargets(options.outputDir);
+  prepareOutputDirectory(options.outputDir, targets);
+  process.stderr.write(`${configurationSummary(options)}\n\n`);
 
-  const missingKeyAgents = options.agents
-    .map((agent, index) => agent.apiKey ? "" : AGENT_LETTERS[index])
-    .filter(Boolean);
-  if (missingKeyAgents.length > 0) {
-    throw new Error(`Agent ${missingKeyAgents.join("/")} 缺少独立 API Key`);
+  if (options.probeProviders) {
+    const recorder = createRecorder(options, "probe");
+    const drivers = createConfiguredDrivers(options, recorder);
+    const fingerprint = probeFingerprint(options, drivers);
+    try {
+      const summary = await probeProviders({
+        matchId: options.matchId,
+        seed: options.seed,
+        scenario: DEFAULT_SCENARIO,
+        drivers,
+        decisionTimeoutMs: options.decisionTimeoutMs,
+        slotRotationIndex: options.slotRotationIndex,
+        configFingerprint: fingerprint,
+      });
+      if (findPotentialSecrets(summary).length > 0) {
+        throw new Error("Probe 摘要包含疑似凭据，已拒绝写入");
+      }
+      await recorder?.flush();
+      atomicWriteJson(targets.probe, summary);
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+      if (!summary.passed) throw new Error("Provider Probe 未全部通过；未启动完整比赛");
+    } finally {
+      await recorder?.flush();
+    }
+    return;
   }
 
-  const drivers = createConfiguredDrivers(options);
-  if (options.probeProviders) {
-    process.stderr.write(`${configurationSummary(options)}\n\n`);
-    const probe = await probeProviders({
+  if (!options.confirmLiveRun) throw new Error("在线 Direct 对局必须显式传入 --confirm-live-run");
+  const gateDrivers = createConfiguredDrivers(options);
+  const fingerprint = probeFingerprint(options, gateDrivers);
+  const probe = readMatchingProbe(targets, fingerprint);
+  const recorder = createRecorder(options, "match");
+  const drivers = createConfiguredDrivers(options, recorder);
+  let output: Awaited<ReturnType<typeof runMatch>>;
+  try {
+    output = await runMatch({
+      matchId: options.matchId,
       seed: options.seed,
       scenario: DEFAULT_SCENARIO,
       drivers,
+      maxActionsPerAgent: options.maxActionsPerAgent,
       decisionTimeoutMs: options.decisionTimeoutMs,
+      totalWallClockMs: options.totalWallClockMs,
+      slotRotationIndex: options.slotRotationIndex,
     });
-    process.stdout.write(`${JSON.stringify(probe, null, 2)}\n`);
-    if (!probe.passed) throw new Error("Provider Probe 未全部通过；未启动完整比赛");
-    return;
+  } finally {
+    await recorder?.flush();
   }
-  if (!options.confirmLiveRun) {
-    throw new Error("在线 Direct 对局必须显式传入 --confirm-live-run");
-  }
-  if (!options.outputDir) {
-    throw new Error("完整比赛缺少输出目录；尚未发起模型请求");
-  }
-
-  const targets = artifactTargets(options.outputDir);
-  prepareArtifactDirectory(options.outputDir, targets);
-  process.stderr.write(`${configurationSummary(options)}\n\n`);
-
-  const output = await runMatch({
-    matchId: options.matchId,
-    seed: options.seed,
-    scenario: DEFAULT_SCENARIO,
-    drivers,
-    maxActionsPerAgent: options.maxActionsPerAgent,
-    decisionTimeoutMs: options.decisionTimeoutMs,
-  });
-  writeArtifacts(options, output, targets);
+  writeMatchArtifacts(options, output, probe, targets);
   buildOfflineReplay(targets);
-
   process.stdout.write(`Direct Arena 产物已写入：${options.outputDir}\n`);
   process.stdout.write(`离线页面：${targets.html}\n`);
   process.stdout.write(`Replay hash：${output.replay.replayHash}\n`);

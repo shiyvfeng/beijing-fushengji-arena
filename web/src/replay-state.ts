@@ -1,11 +1,11 @@
-import type { FinalResult, LuckAudit, ReplayArtifact, ReplayDay } from "./replay-types.ts";
+import type { FinalResult, PersonalRandomEventAudit, ReplayArtifact, ReplayDay } from "./replay-types.ts";
 
 export interface VisibleReplaySlice {
   visibleThroughDay: number;
   days: ReplayDay[];
   latestDay: ReplayDay;
   finalResults?: FinalResult[];
-  luckAudit?: LuckAudit;
+  personalRandomEventAudit?: PersonalRandomEventAudit;
 }
 
 export function createVisibleReplaySlice(
@@ -24,7 +24,10 @@ export function createVisibleReplaySlice(
     days,
     latestDay,
     ...(visibleThroughDay === replay.totalDays
-      ? { finalResults: replay.finalResults, luckAudit: replay.luckAudit }
+      ? {
+          finalResults: replay.finalResults,
+          personalRandomEventAudit: replay.personalRandomEventAudit,
+        }
       : {}),
   };
 }

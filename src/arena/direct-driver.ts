@@ -1,65 +1,81 @@
 import { performance } from "node:perf_hooks";
-import type { AgentDescriptor, GameAction, ModelObservation, Observation } from "../core/contracts.js";
-import { immutableClone, integrityHash } from "../core/stable-value.js";
+import type {
+  AgentDescriptor,
+  FaultDomain,
+  GameAction,
+  ModelDecisionEvidence,
+  ModelObservation,
+  Observation,
+  TechnicalFailureCategory,
+} from "../core/contracts.js";
+import { immutableClone, stableHash } from "../core/stable-value.js";
 import type {
   AgentDecisionInput,
+  AgentDecisionOutput,
   AgentDriver,
+  ArenaModelCallAudit,
   DirectCompetitionProfile,
   DirectModelProviderAdapter,
   DirectModelRunMetrics,
+  ModelCallEvidenceLink,
+  ModelRevisionAudit,
+  ProviderTokenUsage,
+  SamplingAudit,
 } from "./agent-driver.js";
 import { DirectProviderRequestError } from "./agent-driver.js";
+import {
+  buildFullHistoryUserContext,
+  DIRECT_CONTEXT_POLICY_VERSION,
+  DIRECT_DECISION_POLICY_HASH,
+  DIRECT_DECISION_POLICY_ID,
+  DIRECT_MODEL_OBSERVATION_VERSION,
+  DIRECT_SAMPLING_POLICY_VERSION,
+  DIRECT_SYSTEM_INSTRUCTION,
+  fullContextHash,
+  serializeFullHistoryUserContext,
+} from "./direct-context.js";
 
-export const DIRECT_DECISION_POLICY_ID = "neutral-v1" as const;
-export const DIRECT_MODEL_OBSERVATION_VERSION = "identity-free-v1" as const;
-export const DIRECT_DECISION_POLICY_TEXT = [
-  "Maximize final net worth while staying alive and completing the full 40-day episode.",
-  "Use only the supplied facts and rules. Balance liquidity, health, debt, inventory risk and terminal liquidation.",
-  "Do not adopt a persona, role, slot-specific style or provider-specific strategy.",
-].join("\n");
-export const DIRECT_DECISION_POLICY_HASH = integrityHash({
-  policyId: DIRECT_DECISION_POLICY_ID,
-  policyText: DIRECT_DECISION_POLICY_TEXT,
-  modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
-  actionContract: "arena-game-action-v1",
-});
+export {
+  DIRECT_CONTEXT_POLICY_VERSION,
+  DIRECT_DECISION_POLICY_HASH,
+  DIRECT_DECISION_POLICY_ID,
+  DIRECT_MODEL_OBSERVATION_VERSION,
+  DIRECT_SAMPLING_POLICY_VERSION,
+  DIRECT_SYSTEM_INSTRUCTION,
+} from "./direct-context.js";
 
 export interface DirectModelDriverConfig {
   readonly id: string;
-  readonly displayName: string;
-  readonly personaId: string;
   readonly slot: number;
   readonly provider: DirectModelProviderAdapter;
 }
 
 export interface DefaultDirectAgentSpec {
   readonly id: string;
-  readonly displayName: string;
-  readonly personaId: string;
 }
 
-export const DEFAULT_DIRECT_AGENT_SPECS: readonly DefaultDirectAgentSpec[] = Object.freeze([
-  Object.freeze({
-    id: "agent-steady",
-    displayName: "稳健铁算盘",
-    personaId: "steady",
-  }),
-  Object.freeze({
-    id: "agent-value",
-    displayName: "胡同捡漏王",
-    personaId: "value",
-  }),
-  Object.freeze({
-    id: "agent-aggressive",
-    displayName: "京城冲浪客",
-    personaId: "aggressive",
-  }),
-  Object.freeze({
-    id: "agent-cash",
-    displayName: "现金守门员",
-    personaId: "cash-first",
-  }),
-]);
+export const DEFAULT_DIRECT_AGENT_SPECS: readonly DefaultDirectAgentSpec[] = Object.freeze(
+  Array.from({ length: 5 }, (_, index) => Object.freeze({ id: `competitor-${index + 1}` })),
+);
+
+interface MutableModelCall {
+  readonly artifactType: "arena-model-call-v1";
+  readonly modelCallId: string;
+  readonly agentId: string;
+  readonly agentSlot: number;
+  readonly actionIndex: number;
+  readonly observationHash: string;
+  readonly fullContextHash: string;
+  readonly startedAt: number;
+  status?: "succeeded" | "failed";
+  latencyMs?: number;
+  tokenUsage?: ProviderTokenUsage;
+  usageMissing?: boolean;
+  responseModelRevision?: string;
+  failure?: ArenaModelCallAudit["failure"];
+  actionEventId?: string;
+  terminationEventId?: string;
+}
 
 function requireNonEmpty(value: string, name: string): string {
   const normalized = value.trim();
@@ -89,20 +105,14 @@ function isPositiveSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) > 0;
 }
 
-/**
- * Parse the untrusted provider result into the only value allowed to reach
- * GameEnvironment. Unknown fields, coercions and non-finite/fractional numbers
- * are rejected instead of being recorded in episode evidence.
- */
+/** Strictly parse the only value that may reach GameEnvironment. */
 export function parseDirectGameAction(value: unknown): GameAction {
   if (!isRecord(value) || typeof value.type !== "string") {
     throw new Error("Direct Model 返回值不是合法的 GameAction 对象");
   }
-
   switch (value.type) {
     case "move":
-      if (hasExactKeys(value, ["type", "locationId"])
-        && isNonNegativeSafeInteger(value.locationId)) {
+      if (hasExactKeys(value, ["type", "locationId"]) && isNonNegativeSafeInteger(value.locationId)) {
         return Object.freeze({ type: "move", locationId: value.locationId });
       }
       break;
@@ -111,51 +121,51 @@ export function parseDirectGameAction(value: unknown): GameAction {
       if (hasExactKeys(value, ["type", "itemId", "quantity"])
         && isNonNegativeSafeInteger(value.itemId)
         && isPositiveSafeInteger(value.quantity)) {
-        return Object.freeze({
-          type: value.type,
-          itemId: value.itemId,
-          quantity: value.quantity,
-        });
+        return Object.freeze({ type: value.type, itemId: value.itemId, quantity: value.quantity });
       }
       break;
     case "deposit":
     case "withdraw":
     case "repay_debt":
-      if (hasExactKeys(value, ["type", "amount"])
-        && isPositiveSafeInteger(value.amount)) {
+      if (hasExactKeys(value, ["type", "amount"]) && isPositiveSafeInteger(value.amount)) {
         return Object.freeze({ type: value.type, amount: value.amount });
       }
       break;
     case "heal":
-      if (hasExactKeys(value, ["type", "points"])
-        && isPositiveSafeInteger(value.points)) {
+      if (hasExactKeys(value, ["type", "points"]) && isPositiveSafeInteger(value.points)) {
         return Object.freeze({ type: "heal", points: value.points });
       }
       break;
     case "expand_capacity":
-      if (hasExactKeys(value, ["type"])) {
-        return Object.freeze({ type: "expand_capacity" });
-      }
+      if (hasExactKeys(value, ["type"])) return Object.freeze({ type: "expand_capacity" });
       break;
   }
-
   throw new Error("Direct Model 返回的动作不符合严格 GameAction 契约");
+}
+
+function defaultSamplingAudit(provider: DirectModelProviderAdapter): SamplingAudit {
+  const mode = provider.thinkingMode ?? "default";
+  return Object.freeze({
+    policyVersion: DIRECT_SAMPLING_POLICY_VERSION,
+    temperature: "omitted",
+    topP: "omitted",
+    maxOutputTokens: provider.maxOutputTokens,
+    jsonMode: "none",
+    thinking: Object.freeze({ mode, sent: mode !== "default" }),
+  });
+}
+
+function rounded(value: number): number {
+  return Math.max(0, Math.round(value * 1_000) / 1_000);
 }
 
 export class DirectModelDriver implements AgentDriver {
   readonly descriptor: AgentDescriptor;
   readonly competitionProfile: DirectCompetitionProfile;
   private readonly provider: DirectModelProviderAdapter;
-  private requestCount = 0;
-  private successfulRequestCount = 0;
-  private usageReportedRequestCount = 0;
-  private inputTokens = 0;
-  private outputTokens = 0;
-  private totalTokens = 0;
-  private readonly latencies: number[] = [];
-  private nextRequestMetricId = 0;
-  private readonly pendingRequestStartedAt = new Map<number, number>();
-  private readonly errorCounts: Partial<Record<DirectProviderRequestError["code"], number>> = {};
+  private readonly sampling: SamplingAudit;
+  private readonly calls = new Map<string, MutableModelCall>();
+  private currentEvidence: ModelDecisionEvidence | undefined;
 
   constructor(config: DirectModelDriverConfig) {
     if (!Number.isSafeInteger(config.slot) || config.slot < 0) {
@@ -170,16 +180,17 @@ export class DirectModelDriver implements AgentDriver {
       || config.provider.maxOutputTokens > 4_096) {
       throw new Error("Provider maxOutputTokens 必须为 16..4096 的安全整数");
     }
+    this.sampling = config.provider.samplingAudit ?? defaultSamplingAudit(config.provider);
     this.competitionProfile = Object.freeze({
       decisionPolicyId: DIRECT_DECISION_POLICY_ID,
       decisionPolicyHash: DIRECT_DECISION_POLICY_HASH,
       modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
+      contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
+      samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
       maxOutputTokensPerRequest: config.provider.maxOutputTokens,
     });
     this.descriptor = Object.freeze({
       id: requireNonEmpty(config.id, "Agent id"),
-      displayName: requireNonEmpty(config.displayName, "Agent displayName"),
-      personaId: requireNonEmpty(config.personaId, "Agent personaId"),
       slot: config.slot,
       driver: "direct" as const,
       decisionPolicyId: DIRECT_DECISION_POLICY_ID,
@@ -187,31 +198,48 @@ export class DirectModelDriver implements AgentDriver {
       provider: providerId,
       model: modelId,
       providerAdapterVersion,
-      ...(config.provider.thinkingMode
-        ? { providerThinkingMode: config.provider.thinkingMode }
+      ...(config.provider.thinkingMode ? { providerThinkingMode: config.provider.thinkingMode } : {}),
+      ...(config.provider.declaredModelRevision
+        ? { declaredModelRevision: requireNonEmpty(config.provider.declaredModelRevision, "model revision") }
         : {}),
     });
   }
 
-  async decide(input: AgentDecisionInput): Promise<GameAction> {
+  async decide(input: AgentDecisionInput): Promise<AgentDecisionOutput> {
     if (input.signal.aborted) {
-      throw input.signal.reason instanceof Error
-        ? input.signal.reason
-        : new Error("Direct Model 决策已取消");
+      throw input.signal.reason instanceof Error ? input.signal.reason : new Error("Direct Model 决策已取消");
     }
-    this.requestCount++;
-    const startedAt = performance.now();
-    const requestMetricId = this.nextRequestMetricId++;
-    this.pendingRequestStartedAt.set(requestMetricId, startedAt);
+    const observation = createDirectModelObservation(input.observation);
+    const contextObject = buildFullHistoryUserContext(input.actionIndex, observation, input.history);
+    const userContext = serializeFullHistoryUserContext(contextObject);
+    const contextHash = fullContextHash(DIRECT_SYSTEM_INSTRUCTION, userContext);
+    const modelCallId = `model-call_${stableHash({
+      matchId: input.matchId,
+      agentId: this.descriptor.id,
+      actionIndex: input.actionIndex,
+    })}`;
+    if (this.calls.has(modelCallId)) throw new Error(`重复 modelCallId：${modelCallId}`);
+    const call: MutableModelCall = {
+      artifactType: "arena-model-call-v1",
+      modelCallId,
+      agentId: this.descriptor.id,
+      agentSlot: this.descriptor.slot,
+      actionIndex: input.actionIndex,
+      observationHash: input.observation.observationHash,
+      fullContextHash: contextHash,
+      startedAt: performance.now(),
+    };
+    this.calls.set(modelCallId, call);
+    this.currentEvidence = Object.freeze({ modelCallId, fullContextHash: contextHash });
+
     try {
       const result = await this.provider.requestDecision({
         ...input,
-        observation: createDirectModelObservation(input.observation),
-        recentResults: input.recentResults.map(recent => Object.freeze({
-          success: recent.success,
-          ...(recent.code ? { code: recent.code } : {}),
-          message: recent.message,
-        })),
+        observation,
+        modelCallId,
+        fullContextHash: contextHash,
+        systemInstruction: DIRECT_SYSTEM_INSTRUCTION,
+        userContext,
       });
       let action: GameAction;
       try {
@@ -219,71 +247,166 @@ export class DirectModelDriver implements AgentDriver {
       } catch {
         throw new DirectProviderRequestError(
           this.provider.providerId,
-          "invalid_response",
+          "invalid_action",
           `${this.provider.providerId} 返回的动作不符合 Arena 契约`,
+          undefined,
+          { responseModelRevision: result.responseModelRevision },
         );
       }
-      this.successfulRequestCount++;
-      if (result.usage) {
-        this.usageReportedRequestCount++;
-        this.inputTokens += result.usage.inputTokens;
-        this.outputTokens += result.usage.outputTokens;
-        this.totalTokens += result.usage.totalTokens;
+      if (!observation.allowedActions.includes(action.type)) {
+        throw new DirectProviderRequestError(
+          this.provider.providerId,
+          "invalid_action",
+          `${this.provider.providerId} 返回了当前不可用的 Arena 动作`,
+          undefined,
+          { responseModelRevision: result.responseModelRevision },
+        );
       }
-      return action;
+      this.finishCall(call, "succeeded", result.usage, result.responseModelRevision);
+      return Object.freeze({ action, evidence: this.currentEvidence });
     } catch (error: unknown) {
       if (input.signal.aborted) {
-        throw input.signal.reason instanceof Error
-          ? input.signal.reason
-          : new Error("Direct Model 决策已取消");
+        throw input.signal.reason instanceof Error ? input.signal.reason : new Error("Direct Model 决策已取消");
       }
       if (error instanceof DirectProviderRequestError) {
-        this.errorCounts[error.code] = (this.errorCounts[error.code] ?? 0) + 1;
+        this.finishCall(call, "failed", undefined, error.responseModelRevision, {
+          category: error.code,
+          domain: error.domain,
+          countsTowardModelFailure: error.countsTowardModelFailure,
+          ...(error.httpStatus !== undefined ? { httpStatus: error.httpStatus } : {}),
+        });
+      } else {
+        this.finishCall(call, "failed", undefined, undefined, {
+          category: "driver_error",
+          domain: "runner",
+          countsTowardModelFailure: false,
+        });
       }
       throw error;
-    } finally {
-      const pendingStartedAt = this.pendingRequestStartedAt.get(requestMetricId);
-      if (pendingStartedAt !== undefined) {
-        this.latencies.push(
-          Math.max(0, Math.round((performance.now() - pendingStartedAt) * 1000) / 1000),
-        );
-        this.pendingRequestStartedAt.delete(requestMetricId);
-      }
     }
   }
 
+  getActiveDecisionEvidence(): ModelDecisionEvidence | undefined {
+    return this.currentEvidence;
+  }
+
+  recordExternalDecisionFailure(
+    category: TechnicalFailureCategory,
+    domain: FaultDomain,
+    countsTowardModelFailure: boolean,
+  ): ModelDecisionEvidence | undefined {
+    const evidence = this.currentEvidence;
+    if (!evidence) return undefined;
+    const call = this.calls.get(evidence.modelCallId);
+    if (call && call.status === undefined) {
+      this.finishCall(call, "failed", undefined, undefined, {
+        category,
+        domain,
+        countsTowardModelFailure,
+      });
+    }
+    return evidence;
+  }
+
+  linkModelCallEvidence(modelCallId: string, link: ModelCallEvidenceLink): void {
+    const call = this.calls.get(modelCallId);
+    if (!call) throw new Error(`未知 modelCallId：${modelCallId}`);
+    if (link.actionEventId) call.actionEventId = link.actionEventId;
+    if (link.terminationEventId) call.terminationEventId = link.terminationEventId;
+    if (this.currentEvidence?.modelCallId === modelCallId) this.currentEvidence = undefined;
+  }
+
   getRunMetrics(): DirectModelRunMetrics {
-    const measuredAt = performance.now();
-    const latencySamples = [
-      ...this.latencies,
-      ...[...this.pendingRequestStartedAt.values()].map(startedAt => (
-        Math.max(0, Math.round((measuredAt - startedAt) * 1000) / 1000)
-      )),
-    ];
-    const totalLatency = latencySamples.reduce((sum, value) => sum + value, 0);
+    const calls = [...this.calls.values()]
+      .sort((a, b) => a.actionIndex - b.actionIndex)
+      .map(call => this.snapshotCall(call));
+    const latencies = calls.map(call => call.latencyMs);
+    const usage = calls.flatMap(call => call.tokenUsage ? [call.tokenUsage] : []);
+    const errorCounts: Partial<Record<TechnicalFailureCategory, number>> = {};
+    for (const call of calls) {
+      if (call.failure) {
+        errorCounts[call.failure.category] = (errorCounts[call.failure.category] ?? 0) + 1;
+      }
+    }
+    const totalLatency = rounded(latencies.reduce((sum, value) => sum + value, 0));
     return Object.freeze({
-      requestCount: this.requestCount,
-      successfulRequestCount: this.successfulRequestCount,
-      failedRequestCount: this.requestCount - this.successfulRequestCount,
-      usageReportedRequestCount: this.usageReportedRequestCount,
-      inputTokens: this.inputTokens,
-      outputTokens: this.outputTokens,
-      totalTokens: this.totalTokens,
+      calls: Object.freeze(calls),
+      requestCount: calls.length,
+      successfulRequestCount: calls.filter(call => call.status === "succeeded").length,
+      failedRequestCount: calls.filter(call => call.status === "failed").length,
+      usageReportedRequestCount: usage.length,
+      inputTokens: usage.reduce((sum, item) => sum + item.inputTokens, 0),
+      outputTokens: usage.reduce((sum, item) => sum + item.outputTokens, 0),
+      totalTokens: usage.reduce((sum, item) => sum + item.totalTokens, 0),
       latencyMs: Object.freeze({
-        total: Math.round(totalLatency * 1000) / 1000,
-        minimum: latencySamples.length ? Math.min(...latencySamples) : null,
-        maximum: latencySamples.length ? Math.max(...latencySamples) : null,
-        average: latencySamples.length
-          ? Math.round((totalLatency / latencySamples.length) * 1000) / 1000
-          : null,
+        total: totalLatency,
+        minimum: latencies.length ? Math.min(...latencies) : null,
+        maximum: latencies.length ? Math.max(...latencies) : null,
+        average: latencies.length ? rounded(totalLatency / latencies.length) : null,
       }),
-      errorCounts: Object.freeze({ ...this.errorCounts }),
+      errorCounts: Object.freeze(errorCounts),
     });
+  }
+
+  private finishCall(
+    call: MutableModelCall,
+    status: "succeeded" | "failed",
+    usage?: ProviderTokenUsage,
+    responseModelRevision?: string,
+    failure?: NonNullable<ArenaModelCallAudit["failure"]>,
+  ): void {
+    if (call.status !== undefined) return;
+    call.status = status;
+    call.latencyMs = rounded(performance.now() - call.startedAt);
+    call.usageMissing = usage === undefined;
+    if (usage) call.tokenUsage = usage;
+    const normalizedRevision = responseModelRevision?.trim();
+    if (normalizedRevision) call.responseModelRevision = normalizedRevision;
+    if (failure) call.failure = Object.freeze(failure);
+  }
+
+  private revisionAudit(call: MutableModelCall): ModelRevisionAudit {
+    const declared = this.provider.declaredModelRevision?.trim() || null;
+    const response = call.responseModelRevision?.trim() || null;
+    return Object.freeze({
+      declared,
+      response,
+      resolved: response ?? declared ?? "unavailable",
+      mismatch: declared !== null && response !== null && declared !== response,
+    });
+  }
+
+  private snapshotCall(call: MutableModelCall): ArenaModelCallAudit {
+    const measuredLatency = call.latencyMs ?? rounded(performance.now() - call.startedAt);
+    return immutableClone({
+      artifactType: call.artifactType,
+      modelCallId: call.modelCallId,
+      agentId: call.agentId,
+      agentSlot: call.agentSlot,
+      actionIndex: call.actionIndex,
+      observationHash: call.observationHash,
+      fullContextHash: call.fullContextHash,
+      status: call.status ?? "failed",
+      latencyMs: measuredLatency,
+      tokenUsage: call.tokenUsage ?? null,
+      usageMissing: call.usageMissing ?? true,
+      sampling: this.sampling,
+      modelRevision: this.revisionAudit(call),
+      actionEventId: call.actionEventId ?? null,
+      terminationEventId: call.terminationEventId ?? null,
+      failure: call.status === "succeeded"
+        ? null
+        : call.failure ?? {
+          category: "driver_error",
+          domain: "runner",
+          countsTowardModelFailure: false,
+        },
+    }) as ArenaModelCallAudit;
   }
 }
 
 export function createDirectModelObservation(observation: Observation): ModelObservation {
-  const modelObservation = {
+  return immutableClone({
     schemaVersion: observation.schemaVersion,
     rulesetVersion: observation.rulesetVersion,
     toolSchemaVersion: observation.toolSchemaVersion,
@@ -294,15 +417,14 @@ export function createDirectModelObservation(observation: Observation): ModelObs
     items: observation.items,
     locations: observation.locations,
     allowedActions: observation.allowedActions,
-  };
-  return immutableClone(modelObservation) as ModelObservation;
+  }) as ModelObservation;
 }
 
 export function createDefaultDirectModelDrivers(
   provider: DirectModelProviderAdapter,
 ): DirectModelDriver[] {
   return DEFAULT_DIRECT_AGENT_SPECS.map((spec, slot) => new DirectModelDriver({
-    ...spec,
+    id: spec.id,
     slot,
     provider,
   }));

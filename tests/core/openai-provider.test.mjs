@@ -22,9 +22,20 @@ function createDecisionInput(signal = new AbortController().signal) {
   });
   const previous = environment.step({ type: "move", locationId: 1 });
   return {
+    matchId: "openai-provider-test",
     observation: createDirectModelObservation(environment.observe()),
     actionIndex: 1,
-    recentResults: [{ success: previous.success, message: previous.message }],
+    history: [{
+      actionIndex: 0,
+      action: previous.event.action,
+      result: {
+        success: previous.success,
+        code: previous.code ?? null,
+        message: previous.message,
+        effects: previous.event.result.effects,
+      },
+      stateDiff: previous.diff,
+    }],
     signal,
   };
 }
@@ -106,8 +117,8 @@ test("OpenAI provider sends a strict Responses request and returns a minimal Gam
   assert.equal("episodeId" in userContext.observation, false);
   assert.equal("observationHash" in userContext.observation, false);
   assert.deepEqual(
-    Object.keys(userContext.recentResults[0]).sort(),
-    ["message", "success"],
+    Object.keys(userContext.history[0]).sort(),
+    ["action", "actionIndex", "result", "stateDiff"],
   );
   assert.equal(JSON.stringify(body).includes(TEST_API_KEY), false);
 });
@@ -263,7 +274,7 @@ test("OpenAI provider rejects extra, irrelevant and unsafe action fields", async
       });
       await assert.rejects(
         provider.requestDecision(createDecisionInput()),
-        error => error.code === "invalid_response",
+        error => error.code === "invalid_action",
       );
     });
   }

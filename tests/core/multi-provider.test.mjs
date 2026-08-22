@@ -27,9 +27,20 @@ function createDecisionInput(signal = new AbortController().signal) {
   });
   const previous = environment.step({ type: "move", locationId: 1 });
   return {
+    matchId: "multi-provider-test",
     observation: createDirectModelObservation(environment.observe()),
     actionIndex: 1,
-    recentResults: [{ success: previous.success, message: previous.message }],
+    history: [{
+      actionIndex: 0,
+      action: previous.event.action,
+      result: {
+        success: previous.success,
+        code: previous.code ?? null,
+        message: previous.message,
+        effects: previous.event.result.effects,
+      },
+      stateDiff: previous.diff,
+    }],
     signal,
   };
 }
@@ -259,7 +270,22 @@ test("multi-provider adapters redact upstream errors and reject dirty actions", 
       provider: "kimi",
       baseUrl: "https://api.moonshot.cn/v1",
       response: chatResponse({ type: "move", locationId: 1, apiKey: upstreamSecret }),
+      expectedCode: "invalid_action",
+    },
+    {
+      name: "chat malformed usage protocol",
+      provider: "qwen",
+      baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      response: new Response(JSON.stringify({
+        model: "response-revision-42",
+        usage: { prompt_tokens: 21 },
+        choices: [{
+          finish_reason: "stop",
+          message: { role: "assistant", content: JSON.stringify({ type: "move", locationId: 1 }) },
+        }],
+      }), { status: 200, headers: { "Content-Type": "application/json" } }),
       expectedCode: "invalid_response",
+      expectedRevision: "response-revision-42",
     },
     {
       name: "anthropic incomplete",
@@ -281,6 +307,10 @@ test("multi-provider adapters redact upstream errors and reject dirty actions", 
       }), { fetchImpl: async () => item.response });
       await assert.rejects(provider.requestDecision(createDecisionInput()), error => {
         assert.equal(error.code, item.expectedCode);
+        if (item.expectedCode === "http_error") assert.equal(error.domain, "provider");
+        if (item.expectedCode === "invalid_action") assert.equal(error.domain, "model");
+        if (item.expectedCode === "invalid_response") assert.equal(error.domain, "protocol");
+        if (item.expectedRevision) assert.equal(error.responseModelRevision, item.expectedRevision);
         assert.equal(error.message.includes(TEST_API_KEY), false);
         assert.equal(error.message.includes(upstreamSecret), false);
         assert.equal("cause" in error, false);
@@ -288,6 +318,27 @@ test("multi-provider adapters redact upstream errors and reject dirty actions", 
       });
     });
   }
+});
+
+test("provider-declared context overflow is classified as a model boundary", async () => {
+  const provider = createDirectProviderAdapter(normalizeAgentProviderConfig({
+    provider: "deepseek",
+    baseUrl: "https://api.deepseek.com",
+    apiKey: TEST_API_KEY,
+    model: "deepseek-context-test",
+    maxOutputTokens: 128,
+  }), {
+    fetchImpl: async () => new Response(JSON.stringify({
+      error: { message: "Maximum context length exceeded" },
+    }), { status: 400, headers: { "Content-Type": "application/json" } }),
+  });
+  await assert.rejects(provider.requestDecision(createDecisionInput()), error => {
+    assert.equal(error.code, "context_limit");
+    assert.equal(error.domain, "model");
+    assert.equal(error.countsTowardModelFailure, true);
+    assert.equal(error.httpStatus, 400);
+    return true;
+  });
 });
 
 test("provider credentials stay private and redirects are forbidden", async () => {

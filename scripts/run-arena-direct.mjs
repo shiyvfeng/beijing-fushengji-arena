@@ -18,6 +18,7 @@ for (const credentialName of [
   "ARENA_AGENT_B_API_KEY",
   "ARENA_AGENT_C_API_KEY",
   "ARENA_AGENT_D_API_KEY",
+  "ARENA_AGENT_E_API_KEY",
 ]) {
   delete buildEnvironment[credentialName];
 }

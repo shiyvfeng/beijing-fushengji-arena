@@ -8,7 +8,7 @@ import type {
   MatchReplay,
   ReplayAgent,
   ReplayAgentSnapshot,
-  LuckAudit,
+  PersonalRandomEventAudit,
   ReplayDay,
   ScenarioConfig,
 } from "../core/contracts.js";
@@ -53,6 +53,17 @@ function expectedRankSemantics(status: EpisodeTrace["finalResult"]["status"]): {
 
 function assertSameValue(actual: unknown, expected: unknown, message: string): void {
   if (integrityHash(actual) !== integrityHash(expected)) throw new Error(message);
+}
+
+function normalizedProviderIdentity(value: string): string {
+  switch (value.trim().toLowerCase()) {
+    case "gpt": return "openai";
+    case "claude": return "anthropic";
+    case "dashscope": return "qwen";
+    case "moonshot": return "kimi";
+    case "openai-chat": return "openai-compatible";
+    default: return value.trim().toLowerCase();
+  }
 }
 
 function validateTraceEvents(trace: EpisodeTrace, scenario: ScenarioConfig): void {
@@ -111,6 +122,12 @@ function validateTraceEvents(trace: EpisodeTrace, scenario: ScenarioConfig): voi
         throw new Error(`EpisodeTrace 包含重复 technical_termination：${trace.episodeId}`);
       }
       technicalTerminationStatus = event.stateAfter.status;
+    }
+    if (trace.driver === "direct" && event.type === "action") {
+      if (!event.modelCallId?.trim()
+        || !/^sha256:[0-9a-f]{64}$/.test(event.fullContextHash ?? "")) {
+        throw new Error(`Direct action 事件缺少 modelCallId/fullContextHash：${trace.episodeId}`);
+      }
     }
     if (previousAfter && previousAfter.status !== "running" && event.type !== "finalize") {
       throw new Error(`EpisodeTrace 在终止状态后仍包含动作：${trace.episodeId}`);
@@ -262,23 +279,41 @@ function validateTraces(
     throw new Error("Replay Assembler 收到不支持的执行模式");
   }
   if (driverKind === "direct") {
+    if (sorted.length !== 5
+      || sorted.some((trace, index) => trace.agentSlot !== index)) {
+      throw new Error("arena-schema-v3 Direct Replay 必须包含连续 slot 0..4 的五条 Trace");
+    }
+    const identities = new Set<string>();
     for (const trace of sorted) {
       if (!trace.agent.provider?.trim()
         || !trace.agent.model?.trim()
         || !trace.agent.providerAdapterVersion?.trim()
-        || !trace.agent.personaId?.trim()
         || !trace.agent.decisionPolicyId?.trim()
         || !/^sha256:[0-9a-f]{64}$/.test(trace.agent.decisionPolicyHash ?? "")) {
         throw new Error(
-          `Direct EpisodeTrace 缺少展示身份或公平决策审计字段：${trace.episodeId}`,
+          `Direct EpisodeTrace 缺少 Provider、模型或公平决策审计字段：${trace.episodeId}`,
         );
       }
+      if (trace.agent.displayName !== undefined || trace.agent.personaId !== undefined) {
+        throw new Error(`Direct EpisodeTrace 禁止策略展示身份：${trace.episodeId}`);
+      }
+      if (!/^competitor-[1-5]$/u.test(trace.agentId)) {
+        throw new Error(`Direct EpisodeTrace 内部 Agent ID 无效：${trace.episodeId}`);
+      }
+      identities.add(`${normalizedProviderIdentity(trace.agent.provider)}\0${trace.agent.model.trim()}`);
+    }
+    if (identities.size !== 5
+      || new Set(sorted.map(trace => trace.agentId)).size !== 5) {
+      throw new Error("Direct Replay 的五组 Provider + model 与 competitor-1...5 必须互不重复");
     }
   }
   return sorted;
 }
 
-function buildLuckAudit(traces: readonly EpisodeTrace[], revealDay: number): LuckAudit {
+function buildPersonalRandomEventAudit(
+  traces: readonly EpisodeTrace[],
+  revealDay: number,
+): PersonalRandomEventAudit {
   const agents = traces.map(trace => {
     let favorableEvents = 0;
     let adverseEvents = 0;
@@ -331,25 +366,10 @@ function buildLuckAudit(traces: readonly EpisodeTrace[], revealDay: number): Luc
     });
   });
 
-  const bestAdverse = Math.min(...agents.map(agent => agent.adverseEvents));
-  const bestFavorable = Math.max(...agents
-    .filter(agent => agent.adverseEvents === bestAdverse)
-    .map(agent => agent.favorableEvents));
-  const worstAdverse = Math.max(...agents.map(agent => agent.adverseEvents));
-  const worstFavorable = Math.min(...agents
-    .filter(agent => agent.adverseEvents === worstAdverse)
-    .map(agent => agent.favorableEvents));
-
   return Object.freeze({
     basis: "personal-event-count-v1",
     revealDay,
     agents,
-    luckiestAgentIds: agents
-      .filter(agent => agent.adverseEvents === bestAdverse && agent.favorableEvents === bestFavorable)
-      .map(agent => agent.agentId),
-    unluckiestAgentIds: agents
-      .filter(agent => agent.adverseEvents === worstAdverse && agent.favorableEvents === worstFavorable)
-      .map(agent => agent.agentId),
   });
 }
 
@@ -408,13 +428,33 @@ export function assembleMatchReplay(
       || competitionAudit.maxActionsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.decisionTimeoutMs)
       || competitionAudit.decisionTimeoutMs <= 0
+      || !Number.isSafeInteger(competitionAudit.totalWallClockMsPerAgent)
+      || competitionAudit.totalWallClockMsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.maxOutputTokensPerRequest)
       || competitionAudit.maxOutputTokensPerRequest < 16
       || competitionAudit.maxOutputTokensPerRequest > 4_096
       || competitionAudit.automaticRetries !== 0
       || competitionAudit.publicRandomization !== "shared-seed"
-      || competitionAudit.personalRandomization !== "slot-isolated") {
+      || competitionAudit.personalRandomization !== "slot-isolated"
+      || competitionAudit.contextPolicyVersion !== "full-history-v1"
+      || competitionAudit.samplingPolicyVersion !== "provider-default-audited-v1"
+      || competitionAudit.slotRotation.version !== "cyclic-v1"
+      || competitionAudit.slotRotation.mappings.length !== 5) {
       throw new Error("Direct Replay competitionAudit 的预算或随机策略无效");
+    }
+    const { rotationIndex, mappings } = competitionAudit.slotRotation;
+    const mappingSlots = new Set(mappings.map(item => item.slot));
+    const mappingAgents = new Set(mappings.map(item => item.agentId));
+    const traceSlotByAgent = new Map(traces.map(trace => [trace.agentId, trace.agentSlot]));
+    if (!Number.isSafeInteger(rotationIndex) || rotationIndex < 0 || rotationIndex > 4
+      || mappingSlots.size !== 5 || mappingAgents.size !== 5
+      || mappings.some((item, entryIndex) => (
+        item.entryIndex !== entryIndex
+        || item.agentId !== `competitor-${entryIndex + 1}`
+        || item.slot !== (entryIndex + rotationIndex) % 5
+        || traceSlotByAgent.get(item.agentId) !== item.slot
+      ))) {
+      throw new Error("Direct Replay cyclic-v1 映射无效");
     }
     for (const trace of traces) {
       if (trace.agent.decisionPolicyId !== competitionAudit.decisionPolicyId
@@ -462,7 +502,7 @@ export function assembleMatchReplay(
 
   const agents: ReplayAgent[] = traces.map(trace => ({
     id: trace.agent.id,
-    displayName: trace.agent.displayName,
+    ...(trace.agent.displayName ? { displayName: trace.agent.displayName } : {}),
     slot: trace.agentSlot,
     driver: trace.driver,
     ...(trace.agent.personaId ? { personaId: trace.agent.personaId } : {}),
@@ -480,6 +520,9 @@ export function assembleMatchReplay(
     ...(trace.agent.providerThinkingMode
       ? { providerThinkingMode: trace.agent.providerThinkingMode }
       : {}),
+    ...(trace.agent.declaredModelRevision
+      ? { declaredModelRevision: trace.agent.declaredModelRevision }
+      : {}),
     status: trace.finalResult.status,
     finalNetWorth: trace.finalResult.finalNetWorth,
     rank: rankByAgent.get(trace.agentId) ?? null,
@@ -490,14 +533,14 @@ export function assembleMatchReplay(
 
   const metadata = {
     title: executionMode === "direct"
-      ? "北京浮生记 Arena · Direct Model 对局"
+      ? "北京浮生记 · 受控五模型展示赛"
       : "北京浮生记 Arena · Scripted 样例赛",
     executionMode,
     agentCount: traces.length,
     totalDays: scenario.totalDays,
   };
   const sourceTraceHashes = traces.map(trace => trace.traceHash);
-  const luckAudit = buildLuckAudit(traces, scenario.totalDays);
+  const personalRandomEventAudit = buildPersonalRandomEventAudit(traces, scenario.totalDays);
   const configHash = integrityHash({
     matchId,
     scenario,
@@ -522,7 +565,7 @@ export function assembleMatchReplay(
     })),
     finalRanking: ranking,
     finalResults: agents.map(agent => ({ id: agent.id, finalResult: agent.finalResult })),
-    luckAudit,
+    personalRandomEventAudit,
   });
   const body = {
     schemaVersion: ARENA_SCHEMA_VERSION,
@@ -540,7 +583,7 @@ export function assembleMatchReplay(
     finalRanking: ranking,
     setupEvents,
     ...(competitionAudit ? { competitionAudit } : {}),
-    luckAudit,
+    personalRandomEventAudit,
     configHash,
     eventHash,
     factHash,

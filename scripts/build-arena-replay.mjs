@@ -18,6 +18,7 @@ function readValue(args, index, option) {
 function parseArgs(args) {
   let input = "";
   let output = "";
+  let allowInternalScripted = false;
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
     if (argument === "--input") {
@@ -30,6 +31,10 @@ function parseArgs(args) {
       index++;
       continue;
     }
+    if (argument === "--allow-internal-scripted") {
+      allowInternalScripted = true;
+      continue;
+    }
     throw new Error("存在未知参数；用法：arena:replay -- --input <replay.json> [--output <replay.html>]");
   }
   if (!input) throw new Error("必须显式传入 --input <replay.json>");
@@ -37,6 +42,7 @@ function parseArgs(args) {
   return {
     inputPath,
     outputPath: output ? resolve(output) : join(dirname(inputPath), "replay.html"),
+    allowInternalScripted,
   };
 }
 
@@ -58,16 +64,48 @@ function sanitizedEnvironment() {
     "ARENA_AGENT_B_API_KEY",
     "ARENA_AGENT_C_API_KEY",
     "ARENA_AGENT_D_API_KEY",
+    "ARENA_AGENT_E_API_KEY",
   ]) delete env[name];
   return env;
 }
 
-function validateReplay(value) {
+function normalizedProviderIdentity(value) {
+  switch (String(value).trim().toLowerCase()) {
+    case "gpt": return "openai";
+    case "claude": return "anthropic";
+    case "dashscope": return "qwen";
+    case "moonshot": return "kimi";
+    case "openai-chat": return "openai-compatible";
+    default: return String(value).trim().toLowerCase();
+  }
+}
+
+function validateReplay(value, allowInternalScripted) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Replay JSON 顶层必须是对象");
-  if (value.schemaVersion !== "arena-schema-v2") throw new Error("只支持 arena-schema-v2 Replay");
+  if (value.schemaVersion !== "arena-schema-v3") throw new Error("正式构建器只支持 arena-schema-v3 Replay");
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.replayHash ?? "")) throw new Error("Replay hash 无效");
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.factHash ?? "")) throw new Error("Replay fact hash 无效");
-  if (!Array.isArray(value.agents) || value.agents.length !== 4) throw new Error("Replay 必须包含四个 Agent");
+  const isInternalScripted = allowInternalScripted && value?.metadata?.executionMode === "scripted";
+  if (!isInternalScripted && value?.metadata?.executionMode !== "direct") {
+    throw new Error("正式构建器只接受 Direct Replay");
+  }
+  if (!Array.isArray(value.agents) || (!isInternalScripted && value.agents.length !== 5)) {
+    throw new Error("正式 Direct Replay 必须包含五个 Agent");
+  }
+  if (!isInternalScripted) {
+    const slots = value.agents.map(agent => agent?.slot).sort((a, b) => a - b);
+    if (slots.some((slot, index) => slot !== index)) throw new Error("Direct Replay slot 必须连续覆盖 0..4");
+    const ids = value.agents.map(agent => agent?.id).sort();
+    if (ids.some((id, index) => id !== `competitor-${index + 1}`)) {
+      throw new Error("Direct Replay 内部 Agent ID 必须是 competitor-1...5");
+    }
+    const identities = new Set(value.agents.map(agent => (
+      `${normalizedProviderIdentity(agent?.provider ?? "")}\0${String(agent?.model ?? "").trim()}`
+    )));
+    if (identities.size !== 5 || value.agents.some(agent => !agent?.provider?.trim() || !agent?.model?.trim())) {
+      throw new Error("Direct Replay 必须包含五组唯一 Provider + model");
+    }
+  }
   if (!Array.isArray(value.days) || value.days.length !== 40) throw new Error("Replay 必须连续包含第 1..40 天");
   if (value.days.some((day, index) => day?.day !== index + 1)) throw new Error("Replay 日期不连续");
   const body = { ...value };
@@ -151,11 +189,11 @@ function validateOfflineHtml(html, replay) {
 function main() {
   const rawArgs = process.argv.slice(2);
   const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
-  const { inputPath, outputPath } = parseArgs(args);
+  const { inputPath, outputPath, allowInternalScripted } = parseArgs(args);
   if (inputPath === outputPath) throw new Error("Replay JSON 与 HTML 输出路径不能相同");
   accessSync(join(webRoot, "node_modules", ".bin", "tsc"));
   const replay = JSON.parse(readFileSync(inputPath, "utf8"));
-  validateReplay(replay);
+  validateReplay(replay, allowInternalScripted);
   const env = sanitizedEnvironment();
   run("npm", ["run", "build:site"], webRoot, env);
   run(process.execPath, [

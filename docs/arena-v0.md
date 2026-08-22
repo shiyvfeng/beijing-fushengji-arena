@@ -38,13 +38,13 @@ Day 1～39 的可见状态和导出不包含终局与运气数据。页面载入
 
 ## 历史离线构建
 
-从任何当前四槽有效 Replay 显式重建：
+在 2026-08-21 的历史四槽实现中，曾可从有效 Replay 显式重建：
 
 ```bash
 npm run arena:replay -- --input /absolute/path/to/replay.json
 ```
 
-当前构建器会校验 `arena-schema-v2`、四 Agent、40 天和 canonical `replayHash`，在移除 Provider Key 的环境中构建 Web，按固定顺序内联脚本、样式与本地资源，并拒绝远程运行时依赖。完整 Direct 比赛先写 JSON、Trace 和报告，再构建 HTML；HTML 失败不会删除已经完成的事实产物。
+上述命令描述当时的构建链。待办 1 完成后，正式构建器已切换为只接受 `arena-schema-v3` 五模型 Replay，并明确拒绝 v2/四模型输入；`run-001` 的 JSON、hash、报告和已有 HTML 继续保持原样，但不再保证由当前 `arena:replay` 重建。历史实现当时会校验 v2、四 Agent、40 天和 canonical `replayHash`，按固定顺序内联脚本、样式与本地资源，并拒绝远程运行时依赖。
 
 ## Scripted 的保留边界
 

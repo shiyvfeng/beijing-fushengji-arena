@@ -1,6 +1,6 @@
 # Arena Design QA
 
-> 当前状态：新版五模型 P0 尚未验收。本文原有的笼统“通过”结论只对应旧 development fallback/四模型演示实现，已转为历史证据，不能继续作为当前产品通过结论。
+> 当前状态：五模型事实页面已随待办 1 实现并通过单元测试，待办 2 的可重复自动浏览器验收尚未执行，因此新版 P0 仍未验收。本文原有的笼统“通过”结论只对应旧 development fallback/四模型演示实现，已转为历史证据。
 
 ## 历史参考与证据
 
@@ -14,7 +14,7 @@
 
 ## 新版 P0 验收对象
 
-验收必须使用新版五模型 Direct 真实 Replay，而不是 Scripted、sample、development fallback 或 `run-001`。页面需要满足：
+待办 2 验收必须使用新版五模型 Direct 真实 Replay，而不是 Scripted、sample、development fallback、Fake Provider 或 `run-001`。页面需要满足：
 
 - 同场五个不可重复的 `Provider + Model` 组合；可见身份只显示 `Provider + Model`，不显示 A/B/C/D、策略化名称或 persona；
 - Day 1～39 只显示当日可知事实、暂定排名和排名变化；Day 40 正式排名逐项等于核心 `finalRanking`；

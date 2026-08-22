@@ -1,5 +1,7 @@
 export * from "./agent-driver.js";
 export * from "./direct-driver.js";
+export * from "./direct-context.js";
+export * from "./diagnostics.js";
 export * from "./episode-runner.js";
 export * from "./match-runner.js";
 export * from "./provider-probe.js";

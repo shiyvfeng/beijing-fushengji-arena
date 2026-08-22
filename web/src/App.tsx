@@ -17,12 +17,14 @@ import type {
   ReplayDay,
 } from "./replay-types.ts";
 
-const AGENT_COLORS: Record<AgentId, string> = {
-  A: "#f4c35b",
-  B: "#51d6bd",
-  C: "#ff7a6f",
-  D: "#82a7ff",
-};
+const AGENT_COLORS = ["#f4c35b", "#51d6bd", "#ff7a6f", "#82a7ff", "#d58cff"] as const;
+const AGENT_PATTERNS = [
+  "linear-gradient(var(--agent-color), var(--agent-color))",
+  "repeating-linear-gradient(45deg, var(--agent-color) 0 3px, transparent 3px 7px)",
+  "radial-gradient(circle, var(--agent-color) 0 2px, transparent 2px 5px)",
+  "repeating-linear-gradient(90deg, var(--agent-color) 0 2px, transparent 2px 6px)",
+  "repeating-linear-gradient(135deg, var(--agent-color) 0 2px, transparent 2px 8px)",
+] as const;
 const TECHNICAL_DNF = new Set<PublicEpisodeStatus>([
   "model_timeout", "tool_limit", "loop_terminated", "runtime_error",
 ]);
@@ -38,18 +40,25 @@ const STATUS_LABEL: Record<PublicEpisodeStatus, string> = {
 };
 const FAILURE_LABEL = {
   timeout: "请求超时",
+  total_wall_clock: "总墙钟耗尽",
+  context_limit: "模型上下文超限",
   action_budget: "动作预算耗尽",
   invalid_action_loop: "连续无效动作",
   transport_error: "网络传输错误",
   http_error: "Provider HTTP 错误",
-  invalid_response: "响应或动作无效",
-  refusal: "Provider 拒绝响应",
+  invalid_response: "响应协议无效",
+  invalid_action: "模型动作无效",
+  refusal: "模型拒绝响应",
   incomplete: "响应未完成",
   driver_error: "驱动错误",
 } as const;
 
-function agentStyle(agentId: AgentId): CSSProperties {
-  return { "--agent-color": AGENT_COLORS[agentId] } as CSSProperties;
+function agentStyle(replay: ReplayArtifact, agentId: AgentId): CSSProperties {
+  const profile = profileFor(replay, agentId);
+  return {
+    "--agent-color": AGENT_COLORS[profile.visualIndex],
+    "--agent-texture": AGENT_PATTERNS[profile.visualIndex],
+  } as CSSProperties;
 }
 
 function money(value: number): string {
@@ -82,7 +91,7 @@ function Header({ replay, day }: { replay: ReplayArtifact; day: number }) {
         <p className="match-meta">{replay.matchId} · seed {replay.seed} · 第 {day}/40 天</p>
       </div>
       <div className="hash-block" data-replay-hash-marker="true">
-        <span>{replay.executionMode === "direct" ? "受控四模型展示赛" : "显式 Scripted 金样"}</span>
+        <span>{replay.executionMode === "direct" ? "受控五模型展示赛" : "内部 Scripted 回归"}</span>
         <small>回放哈希</small>
         <code>{replay.replayHash}</code>
       </div>
@@ -97,11 +106,12 @@ function FairnessStrip({ replay }: { replay: ReplayArtifact }) {
   }
   return (
     <section className="audit-strip" aria-label="比赛公平性审计">
-      <b>{audit.decisionPolicyId}</b>
+      <b>统一中性决策边界</b>
       <span>无身份观察：{audit.modelObservationVersion}</span>
+      <span>完整历史：{audit.contextPolicyVersion}</span>
       <span>公共随机：同 seed</span>
-      <span>个人随机：槽位隔离</span>
-      <span>预算：{audit.maxActionsPerAgent} 动作 / {audit.decisionTimeoutMs}ms / {audit.maxOutputTokensPerRequest} tokens / 0 重试</span>
+      <span>个人随机：cyclic-v1 / 轮换 {audit.slotRotation.rotationIndex}</span>
+      <span>预算：{audit.maxActionsPerAgent} 动作 / {audit.decisionTimeoutMs}ms 单次 / {audit.totalWallClockMsPerAgent}ms 总墙钟 / {audit.maxOutputTokensPerRequest} tokens / 0 重试</span>
     </section>
   );
 }
@@ -192,16 +202,14 @@ function AgentStatusCard({
     <button
       type="button"
       className={`agent-card ${snapshot.status !== "running" && day < 40 ? "exited" : ""} ${isDnf ? "dnf" : ""}`}
-      style={agentStyle(snapshot.agentId)}
+      style={agentStyle(replay, snapshot.agentId)}
       onClick={() => onOpen(snapshot.agentId)}
-      aria-label={`查看 Agent ${snapshot.agentId} ${profile.name} 详情`}
+      aria-label={`查看 ${profile.label} 详情`}
     >
       <span className="rank-mark">{isDnf ? "DNF" : rank === null ? "—" : `#${rank}`}</span>
-      <span className="agent-letter">{snapshot.agentId}</span>
+      <span className="agent-mark" aria-hidden="true" />
       <span className="agent-identity">
-        <b>{profile.name}</b>
-        <small>{profile.provider} · {profile.model}</small>
-        <small>{profile.adapterVersion}</small>
+        <b>{profile.label}</b>
       </span>
       <span className="worth"><small>净资产</small><b>{money(snapshot.netWorth)}</b></span>
       <span className="rank-change"><small>名次变化</small><b>{rankDelta(snapshot.rankChange)}</b></span>
@@ -253,8 +261,8 @@ function ActionsPanel({ replay, day }: { replay: ReplayArtifact; day: ReplayDay 
           const actions = day.actions.filter(action => action.agentId === profile.id);
           const snapshot = day.agents.find(agent => agent.agentId === profile.id)!;
           return (
-            <section key={profile.id} className="action-group" style={agentStyle(profile.id)} aria-label={`Agent ${profile.id} 当日动作`}>
-              <header><b>{profile.id} · {profile.name}</b><span>{actions.length} 个动作</span></header>
+            <section key={profile.id} className="action-group" style={agentStyle(replay, profile.id)} aria-label={`${profile.label} 当日动作`}>
+              <header><b>{profile.label}</b><span>{actions.length} 个动作</span></header>
               {actions.length ? (
                 <ol>{actions.map((action, index) => (
                   <li key={action.id} className={action.success ? "" : "invalid"}>
@@ -299,7 +307,7 @@ function NetWorthChart({ replay, slice }: { replay: ReplayArtifact; slice: Visib
             const value = day.agents.find(agent => agent.agentId === profile.id)?.netWorth ?? 0;
             return `${index ? "L" : "M"} ${x(day.day).toFixed(2)} ${y(value).toFixed(2)}`;
           }).join(" ");
-          return <path key={profile.id} d={path} stroke={AGENT_COLORS[profile.id]} />;
+          return <path key={profile.id} d={path} stroke={AGENT_COLORS[profile.visualIndex]} />;
         })}
         <line className="cursor" x1={x(slice.visibleThroughDay)} x2={x(slice.visibleThroughDay)} y1={inset.top} y2={height - inset.bottom} />
       </svg>
@@ -308,7 +316,7 @@ function NetWorthChart({ replay, slice }: { replay: ReplayArtifact; slice: Visib
 }
 
 function Finale({ replay, slice }: { replay: ReplayArtifact; slice: VisibleReplaySlice }) {
-  if (!slice.finalResults || !slice.luckAudit) {
+  if (!slice.finalResults || !slice.personalRandomEventAudit) {
     return null;
   }
   return (
@@ -318,24 +326,23 @@ function Finale({ replay, slice }: { replay: ReplayArtifact; slice: VisibleRepla
         {slice.finalResults.map(result => {
           const profile = profileFor(replay, result.agentId);
           return (
-            <div role="row" key={result.agentId} className={result.rank === null ? "dnf" : ""} style={agentStyle(result.agentId)}>
+            <div role="row" key={result.agentId} className={result.rank === null ? "dnf" : ""} style={agentStyle(replay, result.agentId)}>
               <b role="cell">{result.rank === null ? "DNF" : `#${result.rank}`}</b>
-              <span role="cell">{result.agentId} · {profile.name}<small>{profile.provider} · {profile.model}</small></span>
+              <span role="cell">{profile.label}</span>
               <strong role="cell">{money(result.finalNetWorth)}</strong>
               <i role="cell">{STATUS_LABEL[result.status]}{result.technicalFailure ? ` · ${FAILURE_LABEL[result.technicalFailure.category]}` : ""}</i>
             </div>
           );
         })}
       </div>
-      <div className="luck-audit">
-        <header><b>个人随机事件审计</b><span>负面更少、再比较正面更多；反向为最倒霉，允许并列。</span></header>
-        {slice.luckAudit.agents.map(entry => (
-          <div key={entry.agentId} style={agentStyle(entry.agentId)}>
-            <b>{entry.agentId}</b><span>负面 {entry.adverseEvents}</span><span>正面 {entry.favorableEvents}</span>
+      <div className="personal-event-audit">
+        <header><b>个人随机事件原始计数</b><span>仅陈列事实，不作比较性结论。</span></header>
+        {slice.personalRandomEventAudit.agents.map(entry => (
+          <div key={entry.agentId} style={agentStyle(replay, entry.agentId)}>
+            <b>{profileFor(replay, entry.agentId).label}</b><span>负面 {entry.adverseEvents}</span><span>正面 {entry.favorableEvents}</span>
             <small>现金 {entry.adverseCashEvents} · 债务 {entry.adverseDebtEvents} · 健康 {entry.adverseHealthEvents} · 库存赠送 {entry.favorableInventoryEvents}</small>
           </div>
         ))}
-        <p>最幸运：{slice.luckAudit.luckiestAgentIds.join(" / ")}　最倒霉：{slice.luckAudit.unluckiestAgentIds.join(" / ")}</p>
       </div>
     </section>
   );
@@ -360,10 +367,10 @@ function AgentModal({
   }, []);
   return (
     <div className="modal-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
-      <section className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style={agentStyle(agentId)}>
+      <section className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style={agentStyle(replay, agentId)}>
         <header>
-          <span className="agent-letter">{agentId}</span>
-          <div><p>数据截至第 {slice.visibleThroughDay} 天</p><h2 id="modal-title">{profile.name}</h2><small>{profile.provider} · {profile.model} · {profile.adapterVersion}</small></div>
+          <span className="agent-mark" aria-hidden="true" />
+          <div><p>数据截至第 {slice.visibleThroughDay} 天</p><h2 id="modal-title">{profile.label}</h2></div>
           <button ref={closeRef} type="button" onClick={onClose}>关闭</button>
         </header>
         <div className="modal-metrics">
@@ -387,13 +394,29 @@ function AgentModal({
 }
 
 function exportVisibleFacts(replay: ReplayArtifact, slice: VisibleReplaySlice): void {
+  const label = (agentId: AgentId) => profileFor(replay, agentId).label;
   const payload = {
     schemaVersion: replay.schemaVersion,
     matchId: replay.matchId,
     visibleThroughDay: slice.visibleThroughDay,
     replayHash: replay.replayHash,
-    days: slice.days,
-    ...(slice.finalResults ? { finalResults: slice.finalResults, luckAudit: slice.luckAudit } : {}),
+    participants: replay.agentProfiles.map(profile => ({ provider: profile.provider, model: profile.model })),
+    days: slice.days.map(day => ({
+      ...day,
+      agents: day.agents.map(({ agentId, ...agent }) => ({ participant: label(agentId), ...agent })),
+      actions: day.actions.map(({ agentId, ...action }) => ({ participant: label(agentId), ...action })),
+    })),
+    ...(slice.finalResults ? {
+      finalResults: slice.finalResults.map(({ agentId, ...result }) => ({ participant: label(agentId), ...result })),
+      personalRandomEventAudit: {
+        basis: slice.personalRandomEventAudit!.basis,
+        revealDay: slice.personalRandomEventAudit!.revealDay,
+        agents: slice.personalRandomEventAudit!.agents.map(({ agentId, ...entry }) => ({
+          participant: label(agentId),
+          ...entry,
+        })),
+      },
+    } : {}),
   };
   const url = URL.createObjectURL(new Blob([`${JSON.stringify(payload, null, 2)}\n`], { type: "application/json" }));
   const anchor = document.createElement("a");

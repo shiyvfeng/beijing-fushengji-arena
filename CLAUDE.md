@@ -1,13 +1,14 @@
 # CLAUDE.md
 
-本文件为在本仓库中工作的编码 Agent 提供当前事实和边界。不要把 legacy MCP 说明、四槽历史产物或尚未实现的五模型目标混为一谈。
+本文件为在本仓库中工作的编码 Agent 提供当前事实和边界。不要把 legacy MCP 说明、四槽历史产物、已完成的五模型离线实现或尚未完成的真实 P0 验收混为一谈。
 
 ## 项目定位
 
 北京浮生记 Arena 是一个 Direct Model 娱乐化 Benchmark：模型通过统一事实环境独立完成 40 天交易游戏，Runner 产出可审计 Replay、Trace、运行报告和单文件离线页面。
 
-- **当前源码事实**：Direct CLI 固定 A/B/C/D 四槽；2026-08-21 的 `run-001` 是四模型历史验收。
-- **修订后 P0 目标**：五个不同 `Provider + Model` 组合同场；事实 Runner + 五模型事实 Replay；至少 3 场新版 Direct 验收。
+- **当前源码事实**：待办 1 已实现五个不同 `Provider + Model` 的 Direct Runner、`arena-schema-v3` Replay/Web 和审计诊断边界，并通过离线 Fake Provider 验证。
+- **待验收目标**：执行真实五 Provider Probe、至少 3 场新版 Direct 金样，以及可重复自动浏览器验收；完成前不能称完整 P0 已验收。
+- **历史证据**：2026-08-21 的 `run-001` 固定为四槽 v2，不计新版金样，也不回填。
 - **P0.5**：独立 Replay Enrichment，默认使用与五个 Runner 配置分离的第六模型配置。
 - **P1**：strict MCP。仓库原 MCP Server 仅为 legacy 入口。
 
@@ -18,7 +19,7 @@
 - `docs/arena-direct.md`
 - `docs/arena-direct-acceptance-2026-08-21.md`（仅历史四槽事实）
 
-若文档与代码不一致，先报告“当前实现”和“目标契约”的差异，不得把目标描述成已实现。
+若文档与代码不一致，先报告“当前实现”“离线验证”和“真实验收”的差异，不得把离线 Fake Provider 结果描述成在线 Provider 或完整 P0 通过。
 
 ## 开发与验证
 
@@ -33,16 +34,16 @@ npm run test:arena-core
 npm --prefix web test
 npm --prefix web run typecheck
 
-# 当前四槽 Direct 配置检查；不联网
+# 五组 Direct 配置检查；不联网
 npm run arena:direct -- --check-config
 
-# 当前恰好请求 A/B/C/D 各一次；会联网，不写比赛产物
-npm run arena:direct -- --probe-providers
+# 恰好并行请求 A...E 各一次；会联网，只写 Probe 摘要
+npm run arena:direct -- --output-dir <new-directory> --probe-providers
 
-# 当前四槽完整比赛；每次都需显式授权并使用新目录
-npm run arena:direct -- --output-dir <new-directory> --confirm-live-run
+# 同目录 Probe 门禁通过后启动五模型完整比赛
+npm run arena:direct -- --output-dir <same-directory> --confirm-live-run
 
-# 从既有四槽 Replay 重建离线 HTML；不调用模型
+# 从五模型 arena-schema-v3 Replay 重建离线 HTML；不调用模型
 npm run arena:replay -- --input <replay.json>
 ```
 
@@ -52,7 +53,7 @@ Scripted 相关命令只保留为内部确定性回归工具，不属于产品�
 
 - `src/core/`：`GameEnvironment`、版本化规则/场景、坐标式 seeded RNG、不可变状态快照、事件和终局结算。
 - `src/arena/`：Episode/Match Runner、Direct Driver、Provider adapters、Probe、Replay 聚合和运行报告。
-- `src/arena-direct-cli.ts`：当前 A/B/C/D 配置解析、显式在线授权和事实产物写入。
+- `src/arena-direct-cli.ts`：A...E 配置、Probe 门禁、显式在线授权和事实产物写入。
 - `web/src/`：正式 Replay 适配、日期切片、事实观众页和失败关闭。
 - `scripts/build-arena-replay.mjs`：显式输入 Replay，校验 hash，构建单文件离线 HTML。
 - `tests/core/`、`web/tests/`：核心、Provider、Runner、Replay 和 Web 回归。
@@ -60,18 +61,17 @@ Scripted 相关命令只保留为内部确定性回归工具，不属于产品�
 
 `GameEnvironment` 是 Direct Runner 的唯一事实核心。每个参赛者使用独立 Episode；公共市场共享 seed，个人随机按 slot 隔离。单个 Agent 技术失败不能阻塞其他 Agent，技术 DNF 不获得正式名次。
 
-## 五模型 P0 目标约束
-
-五槽代码尚未实现。实施时必须整体更新 CLI、Probe、Replay/Trace/Report、离线构建、Web、测试和文档，不能只增加一个环境变量。
+## 五模型 Runner 约束
 
 - 五组配置的 `Provider + Model` 组合不得完全重复；同一 Provider 的不同 model 可以参赛。
 - UI 只显示 `Provider + Model`，不显示 A/B/C/D、策略化名称或 persona。
-- 所有模型使用相同版本化中性 Prompt、无身份观察、规则、预算、超时、输出 Token 上限和零自动重试。
-- slot 仅为内部确定性标识；轮换保留为可配置选项。
+- 所有模型使用 `neutral-v1`、无身份 Observation、`full-history-v1`、同一规则/预算/超时/输出上限和零自动重试；历史不摘要、不截断、不包含旧 Observation。
+- slot 仅为内部确定性标识；`cyclic-v1` 按 `slot = (entryIndex + rotationIndex) % 5` 轮换。
 - Runner 只输出事实，不生成高光、采访、奖项、结局或解说。
-- DNF 保留原始随机事件计数，但不参与“最幸运/最倒霉”。
-- 审计需补齐完整发送上下文 hash、model revision、sampling parameters、总墙钟、请求/action 关联、故障责任归属和输入/输出/总 Token；不估算货币价格。
-- Probe 应保存脱敏摘要。原始请求/响应只能经显式开关写入独立、脱敏、Git 忽略的诊断目录。
+- Day 40 只展示 DNF、正式排名和个人随机事件原始计数，不在 Runner 内生成幸运/倒霉结论。
+- `arena-model-call-v1` 是请求、延迟、Token、revision、sampling、故障归属和 action/termination 关联的唯一聚合账本；不估算货币价格。
+- Probe 必须在指定比赛目录保存 `arena-provider-probe-v2` 脱敏摘要；完整比赛只能消费同目录配置匹配且全部通过的摘要。
+- 原始请求/响应只能由默认关闭的 `ARENA_SAVE_RAW_EXCHANGES` 写入 `dist/arena-diagnostics/<matchId>/<probe|match>/`，不得进入比赛输出包或事实 hash。
 - P0 至少 3 场新版五模型 Direct；游戏内失败和解释充分的 DNF 可作为真实结果，不强制全部存活至 Day 40。
 
 ## Runner 与 Replay Enrichment 隔离
@@ -96,7 +96,7 @@ P0.5 Replay Enrichment 只能读取已完成的事实 Replay：
 ## 安全、产物与 Git
 
 - API Key 只从本地环境读取，不进入日志、Replay、HTML、错误截图或提交。
-- `.env`、`dist/` 和原始交换诊断目录必须保持 Git 忽略。原始交换开关覆盖 Probe 与正式比赛，代码默认关闭、开发 `.env` 开启，当前开发阶段不做自动清理。
+- `.env`、`dist/` 和原始交换诊断目录必须保持 Git 忽略；`.npmignore` 还必须排除 `.env`、诊断与比赛产物。原始交换开关覆盖 Probe 与正式比赛，代码和 `.env.example` 均默认关闭；实现过程不得修改真实本地 `.env`，诊断文件不自动清理。
 - 不覆盖既有比赛产物；每次真实比赛使用新目录。
 - 当前交付仅限本地研究、线下展示和私有仓库协作，不部署或公开发布。
 - 工作树可能包含用户未提交修改；只改任务明确授权的文件，不清理、重置或提交无关变更。

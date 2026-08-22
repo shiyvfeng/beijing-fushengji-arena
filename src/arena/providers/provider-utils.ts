@@ -2,10 +2,12 @@ import type { GameAction } from "../../core/contracts.js";
 import { findPotentialSecrets } from "../../core/secret-scan.js";
 import type { DirectModelDecisionInput, ProviderTokenUsage } from "../agent-driver.js";
 import { DirectProviderRequestError } from "../agent-driver.js";
+import { parseDirectGameAction } from "../direct-driver.js";
 import {
-  DIRECT_DECISION_POLICY_TEXT,
-  parseDirectGameAction,
-} from "../direct-driver.js";
+  buildFullHistoryUserContext,
+  DIRECT_SYSTEM_INSTRUCTION,
+  serializeFullHistoryUserContext,
+} from "../direct-context.js";
 
 export { DirectProviderRequestError } from "../agent-driver.js";
 
@@ -66,38 +68,40 @@ export function isProviderRecord(value: unknown): value is Record<string, unknow
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
-export function compactRecentResults(input: DirectModelDecisionInput): readonly unknown[] {
-  return input.recentResults;
+export async function classifyHttpFailure(
+  response: Response,
+): Promise<"http_error" | "context_limit"> {
+  let text = "";
+  try {
+    text = (await response.clone().text()).toLowerCase();
+  } catch {
+    return "http_error";
+  }
+  return /context[_ -]?length|context window|maximum context|too many tokens|prompt is too long/u.test(text)
+    ? "context_limit"
+    : "http_error";
+}
+
+export function extractResponseModelRevision(
+  payload: Record<string, unknown>,
+): string | undefined {
+  for (const field of ["model_revision", "revision", "model"] as const) {
+    const value = payload[field];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return undefined;
 }
 
 export function buildArenaSystemInstruction(input: DirectModelDecisionInput): string {
-  return [
-    "You are playing one isolated episode of Beijing Floating Life Arena.",
-    DIRECT_DECISION_POLICY_TEXT,
-    "Choose exactly one action allowed by the observation without inventing state.",
-    "You must reach the final day within the action budget; only move advances the day and applies interest and events.",
-    "After the final day, inventory is liquidated once at publicReferencePrice times each item's liquidityDiscount; final net worth is cash plus bank minus debt after liquidation.",
-    "If currentLocation is null, move first. Never move to the current location, and treat localPrice 0 as unavailable.",
-    "Use only locationId/itemId values present in the observation and positive integer quantities, amounts or points.",
-    `Allowed action types for this decision: ${input.observation.allowedActions.join(", ")}.`,
-    "Return JSON only, without markdown, commentary or extra properties. Use exactly one of these shapes:",
-    '{"type":"move","locationId":0}',
-    '{"type":"buy","itemId":0,"quantity":1}',
-    '{"type":"sell","itemId":0,"quantity":1}',
-    '{"type":"deposit","amount":1}',
-    '{"type":"withdraw","amount":1}',
-    '{"type":"repay_debt","amount":1}',
-    '{"type":"heal","points":1}',
-    '{"type":"expand_capacity"}',
-  ].join("\n");
+  return input.systemInstruction ?? DIRECT_SYSTEM_INSTRUCTION;
 }
 
 export function buildArenaUserContext(input: DirectModelDecisionInput): string {
-  return JSON.stringify({
-    actionIndex: input.actionIndex,
-    observation: input.observation,
-    recentResults: compactRecentResults(input),
-  });
+  return input.userContext ?? serializeFullHistoryUserContext(buildFullHistoryUserContext(
+    input.actionIndex,
+    input.observation,
+    input.history ?? [],
+  ));
 }
 
 function nonNegativeInteger(value: unknown): number | null {
@@ -122,6 +126,7 @@ export function parseStrictJsonAction(
   text: string,
   input: DirectModelDecisionInput,
   providerId: string,
+  responseModelRevision?: string,
 ): GameAction {
   let candidate: unknown;
   try {
@@ -131,6 +136,8 @@ export function parseStrictJsonAction(
       providerId,
       "invalid_response",
       `${providerId} 返回的 Arena 动作无法解析`,
+      undefined,
+      { responseModelRevision },
     );
   }
 
@@ -140,15 +147,19 @@ export function parseStrictJsonAction(
   } catch {
     throw new DirectProviderRequestError(
       providerId,
-      "invalid_response",
+      "invalid_action",
       `${providerId} 返回的动作不符合 Arena 契约`,
+      undefined,
+      { responseModelRevision },
     );
   }
   if (!input.observation.allowedActions.includes(action.type)) {
     throw new DirectProviderRequestError(
       providerId,
-      "invalid_response",
+      "invalid_action",
       `${providerId} 返回了当前不可用的 Arena 动作`,
+      undefined,
+      { responseModelRevision },
     );
   }
   return action;
