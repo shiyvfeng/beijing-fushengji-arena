@@ -122,6 +122,7 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /--slot-rotation-index/);
   assert.match(result.stdout, /--completion-assisted/);
   assert.match(result.stdout, /--accept-assisted-stability/);
+  assert.match(result.stdout, /--skip-assisted-stability/);
   assert.match(result.stdout, /--provider-time-budget-ms/);
   assert.match(result.stdout, /5 × 160 × 3 = 2400/);
   assert.match(result.stdout, /probe-summary\.json/);
@@ -130,14 +131,16 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
 
 test("assisted Stability waiver requires an explicit completion-assisted live match", t => {
   const { path } = createEnvFixture(t, providerLines(""));
-  const result = runCli([
-    "--env-file", path,
-    "--completion-assisted",
-    "--accept-assisted-stability",
-    "--check-config",
-  ]);
-  assert.equal(result.status, 1);
-  assert.match(result.stderr, /只能与 --completion-assisted --confirm-live-run 同时使用/);
+  for (const flag of ["--accept-assisted-stability", "--skip-assisted-stability"]) {
+    const result = runCli([
+      "--env-file", path,
+      "--completion-assisted",
+      flag,
+      "--check-config",
+    ]);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /只能与 --completion-assisted --confirm-live-run 同时使用/);
+  }
 });
 
 test("completion-assisted config is explicit and reports its isolated budget and recovery track", t => {
@@ -307,6 +310,48 @@ test("full match is blocked when matching passed Probe or Stability Probe is abs
   assert.equal(stale.status, 1);
   assert.match(stale.stderr, /配置匹配/);
   assert.equal(existsSync(join(outputDir, "replay.json")), false);
+});
+
+test("explicit Assisted Stability skip writes failed evidence and waiver into the Match report", t => {
+  const outputDir = mkdtempSync(join(tmpdir(), "arena-assisted-skip-stability-"));
+  t.after(() => rmSync(outputDir, { recursive: true, force: true }));
+  const env = fakeProviderEnv();
+  const assistedArgs = [
+    "--completion-assisted",
+    "--match-id", "fake-assisted-skip-stability",
+    "--decision-timeout-ms", "1000",
+    "--provider-time-budget-ms", "40000",
+    "--max-output-tokens", "64",
+    "--slot-rotation-index", "1",
+  ];
+  const probe = runCli(["--output-dir", outputDir, ...assistedArgs, "--probe-providers"], env);
+  assert.equal(probe.status, 0, probe.stderr);
+
+  const match = runCli([
+    "--output-dir", outputDir,
+    ...assistedArgs,
+    "--confirm-live-run",
+    "--skip-assisted-stability",
+  ], env);
+  assert.equal(match.status, 0, match.stderr);
+  assert.match(match.stderr, /事实为未运行\/未通过/);
+
+  const stability = JSON.parse(readFileSync(join(outputDir, "stability-summary.json"), "utf8"));
+  const waiver = JSON.parse(readFileSync(join(outputDir, "stability-waiver.json"), "utf8"));
+  const report = JSON.parse(readFileSync(join(outputDir, "run-report.json"), "utf8"));
+  assert.equal(stability.artifactType, "arena-provider-stability-skipped-v1");
+  assert.equal(stability.passed, false);
+  assert.equal(stability.skipped, true);
+  assert.equal(stability.reason, "explicit-user-authorization");
+  assert.equal(waiver.artifactType, "arena-stability-waiver-v2");
+  assert.equal(waiver.disposition, "explicit-skipped-stability-waiver");
+  assert.equal(waiver.stabilitySummaryHash, stability.stabilitySummaryHash);
+  assert.equal(report.artifactType, "arena-direct-run-report-v6");
+  assert.equal(report.stability.summaryHash, stability.stabilitySummaryHash);
+  assert.equal(report.stability.passed, false);
+  assert.equal(report.stability.skipped, true);
+  assert.equal(report.stability.waiver.hash, waiver.waiverHash);
+  assert.equal(report.stability.waiver.disposition, waiver.disposition);
 });
 
 test("five Fake Providers complete Probe + Stability + Match and create the formal artifact set", t => {

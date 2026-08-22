@@ -97,6 +97,7 @@ interface DirectCliOptions {
   readonly stabilityProbe: boolean;
   readonly completionAssisted: boolean;
   readonly acceptAssistedStability: boolean;
+  readonly skipAssistedStability: boolean;
 }
 
 interface EnvFileSelection {
@@ -144,6 +145,7 @@ function usage(): string {
     "  --stability-probe                 五组并行各完成 10 个自主游戏日并写 stability-summary.json",
     "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe + Stability 门禁",
     "  --accept-assisted-stability       仅 Assisted Match：保留失败事实并显式豁免已结算的辅助日",
+    "  --skip-assisted-stability         仅 Assisted Match：显式跳过 Stability 并写入未通过/已跳过证据",
     "  --check-config                    脱敏检查，不联网、不写产物",
     "  --help",
     "",
@@ -291,6 +293,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let stabilityProbe = false;
   let completionAssisted = false;
   let acceptAssistedStability = false;
+  let skipAssistedStability = false;
 
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
@@ -317,6 +320,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--accept-assisted-stability") {
       acceptAssistedStability = true;
+      continue;
+    }
+    if (argument === "--skip-assisted-stability") {
+      skipAssistedStability = true;
       continue;
     }
     const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(argument);
@@ -428,6 +435,12 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   if (acceptAssistedStability && (!completionAssisted || !confirmLiveRun)) {
     throw new Error("--accept-assisted-stability 只能与 --completion-assisted --confirm-live-run 同时使用");
   }
+  if (skipAssistedStability && (!completionAssisted || !confirmLiveRun)) {
+    throw new Error("--skip-assisted-stability 只能与 --completion-assisted --confirm-live-run 同时使用");
+  }
+  if (acceptAssistedStability && skipAssistedStability) {
+    throw new Error("--accept-assisted-stability 与 --skip-assisted-stability 不能同时使用");
+  }
   if (!outputDir && !checkConfig) {
     throw new Error("Probe、Stability Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
   }
@@ -453,6 +466,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     stabilityProbe,
     completionAssisted,
     acceptAssistedStability,
+    skipAssistedStability,
   };
 }
 
@@ -509,6 +523,41 @@ interface StabilityWaiverRecord {
   }[];
   readonly waiverHash: string;
 }
+
+interface SkippedStabilitySummary {
+  readonly artifactType: "arena-provider-stability-skipped-v1";
+  readonly runTrack: typeof COMPLETION_RUN_TRACK;
+  readonly matchId: string;
+  readonly createdAt: string;
+  readonly passed: false;
+  readonly skipped: true;
+  readonly reason: "explicit-user-authorization";
+  readonly configFingerprint: string;
+  readonly actionTargetPerAgent: typeof STABILITY_ACTION_TARGET;
+  readonly autonomousDayTargetPerAgent: typeof STABILITY_ACTION_TARGET;
+  readonly probe: {
+    readonly summaryHash: string;
+    readonly createdAt: string;
+  };
+  readonly stabilitySummaryHash: string;
+}
+
+interface SkippedStabilityWaiverRecord {
+  readonly artifactType: "arena-stability-waiver-v2";
+  readonly runTrack: typeof COMPLETION_RUN_TRACK;
+  readonly matchId: string;
+  readonly createdAt: string;
+  readonly scope: "match-gate-only";
+  readonly disposition: "explicit-skipped-stability-waiver";
+  readonly probeSummaryHash: string;
+  readonly stabilitySummaryHash: string;
+  readonly stabilityPassed: false;
+  readonly stabilitySkipped: true;
+  readonly waiverHash: string;
+}
+
+type MatchStabilityEvidence = ProviderStabilityResult | SkippedStabilitySummary;
+type MatchStabilityWaiver = StabilityWaiverRecord | SkippedStabilityWaiverRecord;
 
 function stabilityWaiverBody(
   stability: ProviderStabilityResult,
@@ -584,6 +633,138 @@ function writeOrVerifyStabilityWaiver(
   const waiver = Object.freeze({ ...body, waiverHash: integrityHash(body) });
   if (findPotentialSecrets(waiver).length > 0) {
     throw new Error("Stability 豁免记录包含疑似凭据，已拒绝写入");
+  }
+  atomicWriteJson(target, waiver);
+  return waiver;
+}
+
+function skippedStabilityBody(
+  fingerprint: string,
+  probe: ProviderProbeResult,
+  createdAt: string,
+): Omit<SkippedStabilitySummary, "stabilitySummaryHash"> {
+  return {
+    artifactType: "arena-provider-stability-skipped-v1",
+    runTrack: COMPLETION_RUN_TRACK,
+    matchId: probe.matchId,
+    createdAt,
+    passed: false,
+    skipped: true,
+    reason: "explicit-user-authorization",
+    configFingerprint: fingerprint,
+    actionTargetPerAgent: STABILITY_ACTION_TARGET,
+    autonomousDayTargetPerAgent: STABILITY_ACTION_TARGET,
+    probe: Object.freeze({
+      summaryHash: probe.probeSummaryHash,
+      createdAt: probe.createdAt,
+    }),
+  };
+}
+
+function writeOrVerifySkippedStability(
+  target: string,
+  fingerprint: string,
+  probe: ProviderProbeResult,
+): SkippedStabilitySummary {
+  if (existsSync(target)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(target, "utf8")) as unknown;
+    } catch {
+      throw new Error("stability-summary.json 无法读取或解析");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("stability-summary.json 结构无效");
+    }
+    const summary = parsed as Partial<SkippedStabilitySummary>;
+    const { stabilitySummaryHash, ...body } = summary;
+    if (summary.artifactType !== "arena-provider-stability-skipped-v1"
+      || summary.runTrack !== COMPLETION_RUN_TRACK
+      || summary.matchId !== probe.matchId
+      || summary.passed !== false
+      || summary.skipped !== true
+      || summary.reason !== "explicit-user-authorization"
+      || summary.configFingerprint !== fingerprint
+      || summary.actionTargetPerAgent !== STABILITY_ACTION_TARGET
+      || summary.autonomousDayTargetPerAgent !== STABILITY_ACTION_TARGET
+      || summary.probe?.summaryHash !== probe.probeSummaryHash
+      || summary.probe.createdAt !== probe.createdAt
+      || typeof summary.createdAt !== "string"
+      || Number.isNaN(Date.parse(summary.createdAt))
+      || typeof stabilitySummaryHash !== "string"
+      || integrityHash(body) !== stabilitySummaryHash
+      || findPotentialSecrets(summary).length > 0) {
+      throw new Error("stability-summary.json 不是当前配置的显式跳过证据");
+    }
+    return summary as SkippedStabilitySummary;
+  }
+  const body = skippedStabilityBody(fingerprint, probe, new Date().toISOString());
+  const summary = Object.freeze({ ...body, stabilitySummaryHash: integrityHash(body) });
+  if (findPotentialSecrets(summary).length > 0) {
+    throw new Error("Stability 跳过摘要包含疑似凭据，已拒绝写入");
+  }
+  atomicWriteJson(target, summary);
+  return summary;
+}
+
+function skippedStabilityWaiverBody(
+  stability: SkippedStabilitySummary,
+  probe: ProviderProbeResult,
+  createdAt: string,
+): Omit<SkippedStabilityWaiverRecord, "waiverHash"> {
+  return {
+    artifactType: "arena-stability-waiver-v2",
+    runTrack: COMPLETION_RUN_TRACK,
+    matchId: stability.matchId,
+    createdAt,
+    scope: "match-gate-only",
+    disposition: "explicit-skipped-stability-waiver",
+    probeSummaryHash: probe.probeSummaryHash,
+    stabilitySummaryHash: stability.stabilitySummaryHash,
+    stabilityPassed: false,
+    stabilitySkipped: true,
+  };
+}
+
+function writeOrVerifySkippedStabilityWaiver(
+  target: string,
+  stability: SkippedStabilitySummary,
+  probe: ProviderProbeResult,
+): SkippedStabilityWaiverRecord {
+  if (existsSync(target)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(target, "utf8")) as unknown;
+    } catch {
+      throw new Error("stability-waiver.json 无法读取或解析");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("stability-waiver.json 结构无效");
+    }
+    const waiver = parsed as Partial<SkippedStabilityWaiverRecord>;
+    const { waiverHash, ...body } = waiver;
+    if (waiver.artifactType !== "arena-stability-waiver-v2"
+      || waiver.runTrack !== COMPLETION_RUN_TRACK
+      || waiver.matchId !== stability.matchId
+      || waiver.scope !== "match-gate-only"
+      || waiver.disposition !== "explicit-skipped-stability-waiver"
+      || waiver.probeSummaryHash !== probe.probeSummaryHash
+      || waiver.stabilitySummaryHash !== stability.stabilitySummaryHash
+      || waiver.stabilityPassed !== false
+      || waiver.stabilitySkipped !== true
+      || typeof waiver.createdAt !== "string"
+      || Number.isNaN(Date.parse(waiver.createdAt))
+      || typeof waiverHash !== "string"
+      || integrityHash(body) !== waiverHash
+      || findPotentialSecrets(waiver).length > 0) {
+      throw new Error("stability-waiver.json 与当前跳过证据不匹配");
+    }
+    return waiver as SkippedStabilityWaiverRecord;
+  }
+  const body = skippedStabilityWaiverBody(stability, probe, new Date().toISOString());
+  const waiver = Object.freeze({ ...body, waiverHash: integrityHash(body) });
+  if (findPotentialSecrets(waiver).length > 0) {
+    throw new Error("Stability 跳过豁免包含疑似凭据，已拒绝写入");
   }
   atomicWriteJson(target, waiver);
   return waiver;
@@ -742,7 +923,8 @@ function writeMatchArtifacts(
   options: DirectCliOptions,
   output: Awaited<ReturnType<typeof runMatch>>,
   probe: ProviderProbeResult,
-  stability: ProviderStabilityResult,
+  stability: MatchStabilityEvidence,
+  stabilityWaiver: MatchStabilityWaiver | undefined,
   targets: ArtifactTargets,
 ): void {
   if (completedArtifacts(targets).length > 0) throw new Error("比赛产物已存在，拒绝覆盖");
@@ -762,6 +944,12 @@ function writeMatchArtifacts(
     probeCreatedAt: probe.createdAt,
     stabilitySummaryHash: stability.stabilitySummaryHash,
     stabilityCreatedAt: stability.createdAt,
+    stabilityPassed: stability.passed,
+    stabilitySkipped: "skipped" in stability && stability.skipped === true,
+    ...(stabilityWaiver ? {
+      stabilityWaiverHash: stabilityWaiver.waiverHash,
+      stabilityWaiverDisposition: stabilityWaiver.disposition,
+    } : {}),
   }, output);
   for (const [label, artifact] of [["Replay", output.replay], ["Trace", output.traces], ["报告", report]] as const) {
     if (findPotentialSecrets(artifact).length > 0) throw new Error(`${label} 包含疑似凭据，已拒绝写入`);
@@ -898,16 +1086,34 @@ async function main(): Promise<void> {
   const gateDrivers = createConfiguredDrivers(options);
   const fingerprint = probeFingerprint(options, gateDrivers);
   const probe = readMatchingProbe(targets, fingerprint, options.completionAssisted);
-  const stability = readMatchingStability(
-    targets,
-    fingerprint,
-    probe,
-    options.acceptAssistedStability,
-  );
-  if (options.acceptAssistedStability) {
-    const waiver = writeOrVerifyStabilityWaiver(targets.stabilityWaiver, stability, probe);
+  let stability: MatchStabilityEvidence;
+  let stabilityWaiver: MatchStabilityWaiver | undefined;
+  if (options.skipAssistedStability) {
+    stability = writeOrVerifySkippedStability(targets.stability, fingerprint, probe);
+    stabilityWaiver = writeOrVerifySkippedStabilityWaiver(
+      targets.stabilityWaiver,
+      stability,
+      probe,
+    );
     process.stderr.write(
-      `已记录 Stability 辅助日豁免（事实仍为未通过）：${waiver.waiverHash}\n`,
+      `已记录 Stability 显式跳过豁免（事实为未运行/未通过）：${stabilityWaiver.waiverHash}\n`,
+    );
+  } else {
+    stability = readMatchingStability(
+      targets,
+      fingerprint,
+      probe,
+      options.acceptAssistedStability,
+    );
+  }
+  if (options.acceptAssistedStability) {
+    stabilityWaiver = writeOrVerifyStabilityWaiver(
+      targets.stabilityWaiver,
+      stability as ProviderStabilityResult,
+      probe,
+    );
+    process.stderr.write(
+      `已记录 Stability 辅助日豁免（事实仍为未通过）：${stabilityWaiver.waiverHash}\n`,
     );
   }
   const recorder = createRecorder(options, "match");
@@ -934,7 +1140,7 @@ async function main(): Promise<void> {
   } finally {
     await recorder?.flush();
   }
-  writeMatchArtifacts(options, output, probe, stability, targets);
+  writeMatchArtifacts(options, output, probe, stability, stabilityWaiver, targets);
   buildOfflineReplay(targets);
   process.stdout.write(`Direct Arena 产物已写入：${options.outputDir}\n`);
   process.stdout.write(`离线页面：${targets.html}\n`);

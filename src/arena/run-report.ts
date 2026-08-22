@@ -68,6 +68,14 @@ export interface ArenaDirectRunReport {
     readonly createdAt: string;
     readonly actionTargetPerAgent: 10;
     readonly autonomousDayTargetPerAgent?: 10;
+    readonly passed: boolean;
+    readonly skipped: boolean;
+    readonly waiver?: {
+      readonly hash: string;
+      readonly disposition:
+        | "explicit-assisted-stability-waiver"
+        | "explicit-skipped-stability-waiver";
+    };
   };
   readonly competitionAudit: NonNullable<MatchRunOutput["replay"]["competitionAudit"]>;
   readonly limits: {
@@ -131,6 +139,12 @@ interface RunReportOptions {
   readonly probeCreatedAt: string;
   readonly stabilitySummaryHash: string;
   readonly stabilityCreatedAt: string;
+  readonly stabilityPassed?: boolean;
+  readonly stabilitySkipped?: boolean;
+  readonly stabilityWaiverHash?: string;
+  readonly stabilityWaiverDisposition?:
+    | "explicit-assisted-stability-waiver"
+    | "explicit-skipped-stability-waiver";
 }
 
 function rounded(value: number): number {
@@ -272,6 +286,18 @@ export function buildDirectRunReport(
     || Number.isNaN(Date.parse(options.stabilityCreatedAt))) {
     throw new Error("Direct run-report 的 Probe 或 Stability 摘要引用无效");
   }
+  const stabilityPassed = options.stabilityPassed ?? true;
+  const stabilitySkipped = options.stabilitySkipped ?? false;
+  const hasStabilityWaiver = options.stabilityWaiverHash !== undefined
+    || options.stabilityWaiverDisposition !== undefined;
+  if ((stabilitySkipped && (!completionAssisted || stabilityPassed))
+    || (stabilityPassed && hasStabilityWaiver)
+    || (!stabilityPassed && (!/^sha256:[0-9a-f]{64}$/u.test(options.stabilityWaiverHash ?? "")
+      || !options.stabilityWaiverDisposition))
+    || (stabilitySkipped
+      !== (options.stabilityWaiverDisposition === "explicit-skipped-stability-waiver"))) {
+    throw new Error("Direct run-report 的 Stability 通过、跳过或豁免状态无效");
+  }
   const agentById = new Map(output.replay.agents.map(agent => [agent.id, agent]));
   const agents: ArenaRunAgentReport[] = output.report.episodeReports.map(episode => {
     const agent = agentById.get(episode.agentId);
@@ -410,6 +436,14 @@ export function buildDirectRunReport(
       createdAt: options.stabilityCreatedAt,
       actionTargetPerAgent: 10 as const,
       ...(completionAssisted ? { autonomousDayTargetPerAgent: 10 as const } : {}),
+      passed: stabilityPassed,
+      skipped: stabilitySkipped,
+      ...(hasStabilityWaiver ? {
+        waiver: Object.freeze({
+          hash: options.stabilityWaiverHash!,
+          disposition: options.stabilityWaiverDisposition!,
+        }),
+      } : {}),
     }),
     competitionAudit: audit,
     limits: Object.freeze({
