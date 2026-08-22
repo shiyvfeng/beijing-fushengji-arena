@@ -135,7 +135,7 @@ test("config check validates five normalized identities without requiring output
   assert.equal((result.stdout.match(/API Key: 已配置（不显示）/g) ?? []).length, 5);
   assert.match(result.stdout, /competitor-5, slot 3/);
   assert.match(result.stdout, /kimi \+ cli\/model-e/);
-  assert.match(result.stdout, /每 Agent 总墙钟: 9600000 ms/);
+  assert.match(result.stdout, /每 Agent 总墙钟: 19200000 ms/);
   assert.equal((result.stdout.match(/Reasoning effort:/g) ?? []).length, 5);
   assert.equal(result.stdout.includes("输出目录:"), false);
   assert.equal(`${result.stdout}${result.stderr}`.includes(TEST_SECRET), false);

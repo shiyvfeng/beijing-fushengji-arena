@@ -36,7 +36,7 @@ import { integrityHash } from "./core/stable-value.js";
 const CONFIG_LETTERS = ["A", "B", "C", "D", "E"] as const;
 const AGENT_COUNT = CONFIG_LETTERS.length;
 const DEFAULT_MAX_ACTIONS_PER_AGENT = 160;
-const DEFAULT_DECISION_TIMEOUT_MS = 60_000;
+const DEFAULT_DECISION_TIMEOUT_MS = 120_000;
 const DEFAULT_MAX_OUTPUT_TOKENS = 512;
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_ENV_FILE = join(REPOSITORY_ROOT, ".env");

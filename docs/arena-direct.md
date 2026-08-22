@@ -30,6 +30,7 @@ Runner 在任何联网请求前执行以下门禁：
 ## 时间与动作预算
 
 - 每 Agent 拥有独立总墙钟，默认值为 `maxActionsPerAgent × decisionTimeoutMs`；
+- 新版真实金样当前使用 `decisionTimeoutMs = 120000`（2 分钟）；160 次动作预算下，未单独覆盖时每 Agent 总墙钟为 `19200000 ms`；
 - 可通过 `ARENA_TOTAL_WALL_CLOCK_MS` 或 `--total-wall-clock-ms` 统一覆盖；
 - 总墙钟从第一次决策前开始，单次有效等待为 `min(decisionTimeoutMs, 剩余墙钟)`；
 - 总墙钟耗尽记录为 `model_timeout + total_wall_clock`，故障域为 `undetermined`，只终止当前 Agent；
@@ -67,7 +68,7 @@ ARENA_AGENT_A_MODEL_REVISION=
 
 ARENA_SEED=20260820
 ARENA_MAX_ACTIONS_PER_AGENT=160
-ARENA_DECISION_TIMEOUT_MS=60000
+ARENA_DECISION_TIMEOUT_MS=120000
 ARENA_TOTAL_WALL_CLOCK_MS=
 ARENA_MAX_OUTPUT_TOKENS=512
 ARENA_SLOT_ROTATION_INDEX=0
