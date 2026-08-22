@@ -145,6 +145,7 @@ export function parseDirectGameAction(value: unknown): GameAction {
 
 function defaultSamplingAudit(provider: DirectModelProviderAdapter): SamplingAudit {
   const mode = provider.thinkingMode ?? "default";
+  const reasoningEffort = provider.reasoningEffort ?? "default";
   return Object.freeze({
     policyVersion: DIRECT_SAMPLING_POLICY_VERSION,
     temperature: "omitted",
@@ -152,6 +153,10 @@ function defaultSamplingAudit(provider: DirectModelProviderAdapter): SamplingAud
     maxOutputTokens: provider.maxOutputTokens,
     jsonMode: "none",
     thinking: Object.freeze({ mode, sent: mode !== "default" }),
+    reasoningEffort: Object.freeze({
+      level: reasoningEffort,
+      sent: reasoningEffort !== "default",
+    }),
   });
 }
 
@@ -199,6 +204,9 @@ export class DirectModelDriver implements AgentDriver {
       model: modelId,
       providerAdapterVersion,
       ...(config.provider.thinkingMode ? { providerThinkingMode: config.provider.thinkingMode } : {}),
+      ...(config.provider.reasoningEffort
+        ? { providerReasoningEffort: config.provider.reasoningEffort }
+        : {}),
       ...(config.provider.declaredModelRevision
         ? { declaredModelRevision: requireNonEmpty(config.provider.declaredModelRevision, "model revision") }
         : {}),

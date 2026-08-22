@@ -9,6 +9,7 @@ import {
   createDirectProviderAdapter,
   normalizeAgentProviderConfig,
   normalizeArenaProviderId,
+  normalizeProviderReasoningEffort,
   normalizeProviderThinkingMode,
 } from "../../dist/arena/providers/provider-factory.js";
 import { normalizeProviderTokenUsage } from "../../dist/arena/providers/provider-utils.js";
@@ -84,9 +85,51 @@ test("normalized Agent configs keep API keys non-enumerable", () => {
   });
   assert.equal(config.apiKey, TEST_API_KEY);
   assert.equal(config.thinkingMode, "disabled");
+  assert.equal(config.reasoningEffort, "default");
   assert.equal(Object.keys(config).includes("apiKey"), false);
   assert.equal(JSON.stringify(config).includes(TEST_API_KEY), false);
   assert.equal(findPotentialSecrets(config).length, 0);
+});
+
+test("reasoning effort validates each Provider's native ladder", () => {
+  assert.equal(normalizeProviderReasoningEffort("max", "openai"), "max");
+  assert.equal(normalizeProviderReasoningEffort("max", "anthropic"), "max");
+  assert.equal(normalizeProviderReasoningEffort("max", "deepseek"), "max");
+  assert.equal(normalizeProviderReasoningEffort("xhigh", "qwen"), "xhigh");
+  assert.equal(normalizeProviderReasoningEffort("max", "kimi"), "max");
+  assert.equal(normalizeProviderReasoningEffort(undefined, "openai"), "default");
+  assert.throws(
+    () => normalizeProviderReasoningEffort("xhigh", "deepseek"),
+    /deepseek reasoning effort/,
+  );
+  assert.throws(
+    () => normalizeProviderReasoningEffort("max", "qwen"),
+    /qwen reasoning effort/,
+  );
+  assert.throws(
+    () => normalizeAgentProviderConfig({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: TEST_API_KEY,
+      model: "deepseek-test",
+      maxOutputTokens: 128,
+      thinkingMode: "disabled",
+      reasoningEffort: "max",
+    }),
+    /thinking=enabled/,
+  );
+  assert.throws(
+    () => normalizeAgentProviderConfig({
+      provider: "deepseek",
+      baseUrl: "https://api.deepseek.com",
+      apiKey: TEST_API_KEY,
+      model: "deepseek-reasoner",
+      maxOutputTokens: 128,
+      thinkingMode: "default",
+      reasoningEffort: "max",
+    }),
+    /thinking=enabled/,
+  );
 });
 
 test("DeepSeek thinking mode defaults to disabled and rejects provider-incompatible values", () => {
@@ -123,7 +166,8 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
       model: "deepseek-test",
       expectedUrl: "https://api.deepseek.com/chat/completions",
       expectsJsonMode: true,
-      expectedThinkingMode: "disabled",
+      expectedThinkingMode: "enabled",
+      reasoningEffort: "max",
     },
     {
       provider: "qwen",
@@ -132,6 +176,7 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
       expectedUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
       expectsJsonMode: true,
       expectedThinkingMode: "default",
+      reasoningEffort: "xhigh",
     },
     {
       provider: "kimi",
@@ -140,6 +185,7 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
       expectedUrl: "https://api.moonshot.cn/v1/chat/completions",
       expectsJsonMode: false,
       expectedThinkingMode: "default",
+      reasoningEffort: "max",
     },
   ];
 
@@ -151,6 +197,7 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
         ...item,
         apiKey: TEST_API_KEY,
         maxOutputTokens: 256,
+        ...(item.provider === "deepseek" ? { thinkingMode: "enabled" } : {}),
       }), {
         fetchImpl: async (url, init) => {
           capturedUrl = String(url);
@@ -168,8 +215,9 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
       assert.deepEqual(result.usage, { inputTokens: 21, outputTokens: 4, totalTokens: 25 });
       assert.equal(provider.providerId, item.provider);
       assert.equal(provider.modelId, item.model);
-      assert.equal(provider.adapterVersion, "openai-chat-completions-v3");
+      assert.equal(provider.adapterVersion, "openai-chat-completions-v4");
       assert.equal(provider.thinkingMode, item.expectedThinkingMode);
+      assert.equal(provider.reasoningEffort, item.reasoningEffort);
       assert.equal(capturedUrl, item.expectedUrl);
       assert.equal(capturedInit.redirect, "error");
       assert.equal(new Headers(capturedInit.headers).get("authorization"), `Bearer ${TEST_API_KEY}`);
@@ -183,6 +231,7 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
           ? undefined
           : { type: item.expectedThinkingMode },
       );
+      assert.equal(body.reasoning_effort, item.reasoningEffort);
       assert.equal(Boolean(body.response_format), item.expectsJsonMode);
       assert.match(body.messages[0].content, /Return JSON only/);
       assert.equal(JSON.stringify(body).includes(TEST_API_KEY), false);
@@ -225,6 +274,7 @@ test("Claude uses the native Anthropic Messages protocol", async () => {
     apiKey: TEST_API_KEY,
     model: "claude-test",
     maxOutputTokens: 384,
+    reasoningEffort: "max",
   }), {
     fetchImpl: async (url, init) => {
       capturedUrl = String(url);
@@ -241,7 +291,7 @@ test("Claude uses the native Anthropic Messages protocol", async () => {
   });
   assert.deepEqual(result.usage, { inputTokens: 18, outputTokens: 6, totalTokens: 24 });
   assert.equal(provider.providerId, "anthropic");
-  assert.equal(provider.adapterVersion, "anthropic-messages-v2");
+  assert.equal(provider.adapterVersion, "anthropic-messages-v3");
   assert.equal(capturedUrl, "https://api.anthropic.com/v1/messages");
   const headers = new Headers(capturedInit.headers);
   assert.equal(headers.get("x-api-key"), TEST_API_KEY);
@@ -250,6 +300,7 @@ test("Claude uses the native Anthropic Messages protocol", async () => {
   const body = JSON.parse(capturedInit.body);
   assert.equal(body.model, "claude-test");
   assert.equal(body.max_tokens, 384);
+  assert.deepEqual(body.output_config, { effort: "max" });
   assert.equal(body.messages[0].role, "user");
   assert.match(body.system, /Return JSON only/);
   assert.equal(JSON.stringify(body).includes(TEST_API_KEY), false);
@@ -370,15 +421,18 @@ test("provider credentials stay private and redirects are forbidden", async () =
 
 test("OpenAI Responses accepts an explicit v1 base URL without duplicating the path", async () => {
   let capturedUrl;
+  let capturedBody;
   const provider = createDirectProviderAdapter(normalizeAgentProviderConfig({
     provider: "gpt",
     baseUrl: "https://api.openai.com/v1",
     apiKey: TEST_API_KEY,
     model: "gpt-test",
     maxOutputTokens: 128,
+    reasoningEffort: "max",
   }), {
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, init) => {
       capturedUrl = String(url);
+      capturedBody = JSON.parse(init.body);
       return new Response(JSON.stringify({
         status: "completed",
         output: [{
@@ -403,6 +457,7 @@ test("OpenAI Responses accepts an explicit v1 base URL without duplicating the p
     type: "expand_capacity",
   });
   assert.equal(capturedUrl, "https://api.openai.com/v1/responses");
+  assert.deepEqual(capturedBody.reasoning, { effort: "max" });
   assert.equal(provider.providerId, "openai");
-  assert.equal(provider.adapterVersion, "openai-responses-v2");
+  assert.equal(provider.adapterVersion, "openai-responses-v3");
 });

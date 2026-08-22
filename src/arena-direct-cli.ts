@@ -50,6 +50,7 @@ const AGENT_ENV_NAMES = CONFIG_LETTERS.flatMap(letter => [
   `ARENA_AGENT_${letter}_MODEL`,
   `ARENA_AGENT_${letter}_MODEL_REVISION`,
   `ARENA_AGENT_${letter}_THINKING`,
+  `ARENA_AGENT_${letter}_REASONING_EFFORT`,
 ]);
 const ENV_FILE_ALLOWLIST = new Set<string>([
   ...AGENT_ENV_NAMES,
@@ -102,8 +103,8 @@ function usage(): string {
     "  npm run arena:direct -- --probe-providers --output-dir <目录>",
     "  npm run arena:direct -- --output-dir <同一目录> --confirm-live-run",
     "",
-    "必须配置 ARENA_AGENT_A...E 的 PROVIDER、BASE_URL、API_KEY、MODEL。",
-    "可选 MODEL_REVISION 与 THINKING；凭据只从环境或 env 文件读取。",
+    "必须配置 ARENA_AGENT_A...E 的 PROVIDER、BASE_URL、API_KEY、MODEL、REASONING_EFFORT。",
+    "可选 MODEL_REVISION；DeepSeek 可额外配置 THINKING；凭据只从环境或 env 文件读取。",
     "",
     "可选参数：",
     "  --env-file <路径>",
@@ -328,11 +329,13 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     const baseUrl = process.env[`${prefix}_BASE_URL`]?.trim() ?? "";
     const apiKey = process.env[`${prefix}_API_KEY`]?.trim() ?? "";
     const thinkingMode = process.env[`${prefix}_THINKING`]?.trim();
+    const reasoningEffort = process.env[`${prefix}_REASONING_EFFORT`]?.trim() ?? "";
     const modelRevision = process.env[`${prefix}_MODEL_REVISION`]?.trim();
     const rawModel = agentCliModels[entryIndex].trim() || process.env[`${prefix}_MODEL`]?.trim() || "";
     if (!provider) throw new Error(`配置 ${letter} 缺少 ${prefix}_PROVIDER`);
     if (!baseUrl) throw new Error(`配置 ${letter} 缺少 ${prefix}_BASE_URL`);
     if (!rawModel) throw new Error(`配置 ${letter} 缺少 ${prefix}_MODEL`);
+    if (!reasoningEffort) throw new Error(`配置 ${letter} 缺少 ${prefix}_REASONING_EFFORT`);
     if (/[\r\n\0]/u.test(apiKey)) throw new Error(`配置 ${letter} API Key 格式无效`);
     return normalizeAgentProviderConfig({
       provider,
@@ -340,12 +343,21 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
       apiKey,
       model: validatePublicIdentifier(rawModel, `配置 ${letter} model`),
       maxOutputTokens,
+      reasoningEffort: validatePublicIdentifier(
+        reasoningEffort,
+        `配置 ${letter} reasoning effort`,
+      ),
       ...(thinkingMode ? { thinkingMode } : {}),
       ...(modelRevision
         ? { modelRevision: validatePublicIdentifier(modelRevision, `配置 ${letter} model revision`) }
         : {}),
     });
   });
+  const defaultEffortEntry = agents.findIndex(agent => agent.reasoningEffort === "default");
+  if (defaultEffortEntry !== -1) {
+    const letter = CONFIG_LETTERS[defaultEffortEntry];
+    throw new Error(`配置 ${letter} 的 ARENA_AGENT_${letter}_REASONING_EFFORT 必须是显式等级，不能为 default`);
+  }
   const identities = new Set(agents.map(agent => `${agent.provider}\0${agent.model.trim()}`));
   if (identities.size !== AGENT_COUNT) {
     throw new Error("归一化后的五个 Provider + model 组合必须互不重复");
@@ -435,6 +447,7 @@ function probeFingerprint(options: DirectCliOptions, drivers: readonly DirectMod
       }),
       declaredModelRevision: options.agents[entryIndex].modelRevision ?? null,
       thinkingMode: options.agents[entryIndex].thinkingMode,
+      reasoningEffort: options.agents[entryIndex].reasoningEffort,
     })),
     maxActionsPerAgent: options.maxActionsPerAgent,
     decisionTimeoutMs: options.decisionTimeoutMs,
@@ -451,6 +464,7 @@ function configurationSummary(options: DirectCliOptions): string {
     `    Base URL: ${config.baseUrl}`,
     ...(config.modelRevision ? [`    Model revision: ${config.modelRevision}`] : []),
     ...(config.provider === "deepseek" ? [`    Thinking: ${config.thinkingMode}`] : []),
+    `    Reasoning effort: ${config.reasoningEffort}`,
     `    API Key: ${config.apiKey ? "已配置（不显示）" : "未配置"}`,
   ]);
   return [

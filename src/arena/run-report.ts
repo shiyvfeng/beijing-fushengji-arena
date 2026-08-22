@@ -1,5 +1,6 @@
 import type {
   FaultDomain,
+  ProviderReasoningEffort,
   ProviderThinkingMode,
   TechnicalFailureCategory,
   TechnicalFailureDetail,
@@ -22,6 +23,7 @@ export interface ArenaRunAgentReport {
   readonly model: string;
   readonly providerAdapterVersion: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly providerReasoningEffort?: ProviderReasoningEffort;
   readonly requestCount: number;
   readonly successfulRequests: number;
   readonly failedRequests: number;
@@ -219,6 +221,9 @@ export function buildDirectRunReport(
       model: agent.model,
       providerAdapterVersion: agent.providerAdapterVersion,
       ...(agent.providerThinkingMode ? { providerThinkingMode: agent.providerThinkingMode } : {}),
+      ...(agent.providerReasoningEffort
+        ? { providerReasoningEffort: agent.providerReasoningEffort }
+        : {}),
       requestCount: calls.length,
       successfulRequests: calls.filter(call => call.status === "succeeded").length,
       failedRequests: calls.filter(call => call.status === "failed").length,

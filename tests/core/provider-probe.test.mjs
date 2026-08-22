@@ -22,7 +22,8 @@ function probeDrivers(failedSlot = -1) {
       adapterVersion: "probe-adapter-v3",
       modelId: `probe-model-${slot}`,
       maxOutputTokens: 64,
-      thinkingMode: "disabled",
+      thinkingMode: "enabled",
+      reasoningEffort: "max",
       declaredModelRevision: `declared-${slot}`,
       async requestDecision(input) {
         calls[slot]++;
@@ -58,6 +59,7 @@ function fingerprint(drivers) {
       endpointFingerprint: integrityHash({ endpoint: entryIndex }),
       declaredModelRevision: driver.descriptor.declaredModelRevision ?? null,
       thinkingMode: driver.descriptor.providerThinkingMode ?? "default",
+      reasoningEffort: driver.descriptor.providerReasoningEffort ?? "default",
     })),
     maxActionsPerAgent: 160,
     decisionTimeoutMs: 1_000,
@@ -86,6 +88,8 @@ test("Provider Probe v2 makes exactly five parallel requests and produces a veri
   assert.deepEqual(calls, [1, 1, 1, 1, 1]);
   assert.ok(result.entries.every(entry => entry.passed && entry.usage.totalTokens === 13));
   assert.ok(result.entries.every(entry => entry.sampling.temperature === "omitted"));
+  assert.ok(result.entries.every(entry => entry.providerReasoningEffort === "max"));
+  assert.ok(result.entries.every(entry => entry.sampling.reasoningEffort.sent));
   assert.ok(result.entries.every(entry => entry.modelRevision.mismatch));
   assert.equal(new Set(observations.map(value => JSON.stringify(value))).size, 1);
   assert.doesNotThrow(() => assertMatchingProviderProbe(result, configFingerprint));

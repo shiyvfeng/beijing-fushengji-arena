@@ -1,5 +1,8 @@
 import type { DirectModelProviderAdapter, DirectModelDecisionInput, SamplingAudit } from "../agent-driver.js";
-import type { ProviderThinkingMode } from "../../core/contracts.js";
+import type {
+  ProviderReasoningEffort,
+  ProviderThinkingMode,
+} from "../../core/contracts.js";
 import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
@@ -28,6 +31,7 @@ export interface OpenAIChatCompletionsProviderOptions {
   readonly maxOutputTokens?: number;
   /** DeepSeek thinking control. `default` omits the provider-specific request field. */
   readonly thinkingMode?: ProviderThinkingMode;
+  readonly reasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly fetchImpl?: typeof globalThis.fetch;
   readonly exchangeRecorder?: RawExchangeRecorder;
@@ -116,10 +120,11 @@ function collectMessageText(
 
 export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter {
   readonly providerId: string;
-  readonly adapterVersion = "openai-chat-completions-v3";
+  readonly adapterVersion = "openai-chat-completions-v4";
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode: ProviderThinkingMode;
+  readonly reasoningEffort: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly samplingAudit: SamplingAudit;
 
@@ -143,12 +148,16 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       this.providerId,
     );
     this.thinkingMode = validateThinkingMode(options.thinkingMode);
+    this.reasoningEffort = options.reasoningEffort ?? "default";
+    if (!["default", "none", "low", "medium", "high", "xhigh", "max"].includes(this.reasoningEffort)) {
+      throw new Error("reasoningEffort 配置无效");
+    }
     if (options.declaredModelRevision?.trim()) {
       this.declaredModelRevision = options.declaredModelRevision.trim();
     }
     this.#useJsonMode = options.useJsonMode === true;
     this.samplingAudit = Object.freeze({
-      policyVersion: "provider-default-audited-v1",
+      policyVersion: "provider-explicit-effort-audited-v2",
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: this.maxOutputTokens,
@@ -156,6 +165,10 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       thinking: Object.freeze({
         mode: this.thinkingMode,
         sent: this.thinkingMode !== "default",
+      }),
+      reasoningEffort: Object.freeze({
+        level: this.reasoningEffort,
+        sent: this.reasoningEffort !== "default",
       }),
     });
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
@@ -177,6 +190,9 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       ...(this.thinkingMode === "default"
         ? {}
         : { thinking: { type: this.thinkingMode } }),
+      ...(this.reasoningEffort === "default"
+        ? {}
+        : { reasoning_effort: this.reasoningEffort }),
       ...(this.#useJsonMode ? { response_format: { type: "json_object" } } : {}),
     };
 

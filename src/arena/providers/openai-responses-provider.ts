@@ -1,4 +1,4 @@
-import type { GameAction } from "../../core/contracts.js";
+import type { GameAction, ProviderReasoningEffort } from "../../core/contracts.js";
 import type {
   DirectModelDecisionInput,
   DirectModelProviderAdapter,
@@ -85,6 +85,7 @@ export interface OpenAIResponsesProviderOptions {
   readonly allowCustomBaseUrl?: boolean;
   /** Per-decision output ceiling. The action schema normally needs far less. */
   readonly maxOutputTokens?: number;
+  readonly reasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   /** Injectable for hermetic tests. Production defaults to Node's global fetch. */
   readonly fetchImpl?: typeof globalThis.fetch;
@@ -214,6 +215,7 @@ function buildRequestBody(
   input: DirectModelDecisionInput,
   model: string,
   maxOutputTokens: number,
+  reasoningEffort: ProviderReasoningEffort,
 ): Readonly<Record<string, unknown>> {
   return {
     model,
@@ -240,14 +242,18 @@ function buildRequestBody(
         schema: OPENAI_GAME_ACTION_JSON_SCHEMA,
       },
     },
+    ...(reasoningEffort === "default"
+      ? {}
+      : { reasoning: { effort: reasoningEffort } }),
   };
 }
 
 export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
   readonly providerId = "openai";
-  readonly adapterVersion = "openai-responses-v2";
+  readonly adapterVersion = "openai-responses-v3";
   readonly modelId: string;
   readonly maxOutputTokens: number;
+  readonly reasoningEffort: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly samplingAudit: SamplingAudit;
 
@@ -268,16 +274,24 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
       || this.maxOutputTokens > 4_096) {
       throw new Error("OpenAI maxOutputTokens 必须为 16..4096 的安全整数");
     }
+    this.reasoningEffort = options.reasoningEffort ?? "default";
+    if (!["default", "none", "low", "medium", "high", "xhigh", "max"].includes(this.reasoningEffort)) {
+      throw new Error("OpenAI reasoningEffort 配置无效");
+    }
     if (options.declaredModelRevision?.trim()) {
       this.declaredModelRevision = options.declaredModelRevision.trim();
     }
     this.samplingAudit = Object.freeze({
-      policyVersion: "provider-default-audited-v1",
+      policyVersion: "provider-explicit-effort-audited-v2",
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: this.maxOutputTokens,
       jsonMode: "json-schema",
       thinking: Object.freeze({ mode: "default", sent: false }),
+      reasoningEffort: Object.freeze({
+        level: this.reasoningEffort,
+        sent: this.reasoningEffort !== "default",
+      }),
     });
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
     this.#exchangeRecorder = options.exchangeRecorder;
@@ -295,6 +309,7 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
       input,
       this.modelId,
       this.maxOutputTokens,
+      this.reasoningEffort,
     ));
     let response: Response;
     try {

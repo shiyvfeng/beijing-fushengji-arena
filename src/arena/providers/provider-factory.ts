@@ -1,5 +1,8 @@
 import type { DirectModelProviderAdapter } from "../agent-driver.js";
-import type { ProviderThinkingMode } from "../../core/contracts.js";
+import type {
+  ProviderReasoningEffort,
+  ProviderThinkingMode,
+} from "../../core/contracts.js";
 import type { RawExchangeRecorder } from "../diagnostics.js";
 import { AnthropicMessagesProvider } from "./anthropic-messages-provider.js";
 import { OpenAIChatCompletionsProvider } from "./openai-chat-completions-provider.js";
@@ -24,6 +27,7 @@ export interface ArenaAgentProviderConfig {
   readonly model: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode: ProviderThinkingMode;
+  readonly reasoningEffort: ProviderReasoningEffort;
   readonly modelRevision?: string;
 }
 
@@ -71,20 +75,52 @@ export function normalizeProviderThinkingMode(
   return normalized;
 }
 
+const REASONING_EFFORTS_BY_PROVIDER = Object.freeze({
+  openai: new Set(["none", "low", "medium", "high", "xhigh", "max"]),
+  anthropic: new Set(["low", "medium", "high", "xhigh", "max"]),
+  deepseek: new Set(["low", "high", "max"]),
+  qwen: new Set(["low", "medium", "xhigh"]),
+  kimi: new Set(["low", "high", "max"]),
+  "openai-compatible": new Set(["none", "low", "medium", "high", "xhigh", "max"]),
+} satisfies Readonly<Record<ArenaProviderId, ReadonlySet<string>>>);
+
+export function normalizeProviderReasoningEffort(
+  value: string | undefined,
+  provider: ArenaProviderId,
+): ProviderReasoningEffort {
+  const normalized = value?.trim().toLowerCase() || "default";
+  if (normalized === "default") return normalized;
+  if (!REASONING_EFFORTS_BY_PROVIDER[provider].has(normalized)) {
+    const supported = [...REASONING_EFFORTS_BY_PROVIDER[provider]].join("、");
+    throw new Error(`${provider} reasoning effort 仅支持 default、${supported}`);
+  }
+  return normalized as ProviderReasoningEffort;
+}
+
 export function normalizeAgentProviderConfig(
-  config: Omit<ArenaAgentProviderConfig, "provider" | "baseUrl" | "thinkingMode"> & {
+  config: Omit<
+    ArenaAgentProviderConfig,
+    "provider" | "baseUrl" | "thinkingMode" | "reasoningEffort"
+  > & {
     readonly provider: string;
     readonly baseUrl: string;
     readonly thinkingMode?: string;
+    readonly reasoningEffort?: string;
   },
 ): ArenaAgentProviderConfig {
   const provider = normalizeArenaProviderId(config.provider);
+  const thinkingMode = normalizeProviderThinkingMode(config.thinkingMode, provider);
+  const reasoningEffort = normalizeProviderReasoningEffort(config.reasoningEffort, provider);
+  if (provider === "deepseek" && reasoningEffort !== "default" && thinkingMode !== "enabled") {
+    throw new Error("DeepSeek 配置显式 reasoning effort 时必须设置 thinking=enabled");
+  }
   const normalized = {
     provider,
     baseUrl: validateProviderBaseUrl(config.baseUrl, provider),
     model: requireProviderValue(config.model, `${provider} model`),
     maxOutputTokens: config.maxOutputTokens,
-    thinkingMode: normalizeProviderThinkingMode(config.thinkingMode, provider),
+    thinkingMode,
+    reasoningEffort,
     ...(config.modelRevision?.trim() ? { modelRevision: config.modelRevision.trim() } : {}),
   } as ArenaAgentProviderConfig;
   Object.defineProperty(normalized, "apiKey", {
@@ -108,6 +144,7 @@ export function createDirectProviderAdapter(
         allowCustomBaseUrl: true,
         model: config.model,
         maxOutputTokens: config.maxOutputTokens,
+        reasoningEffort: config.reasoningEffort,
         ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
@@ -119,6 +156,7 @@ export function createDirectProviderAdapter(
         baseUrl: config.baseUrl,
         model: config.model,
         maxOutputTokens: config.maxOutputTokens,
+        reasoningEffort: config.reasoningEffort,
         ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
@@ -135,6 +173,7 @@ export function createDirectProviderAdapter(
         useJsonMode: config.provider === "deepseek" || config.provider === "qwen",
         maxOutputTokens: config.maxOutputTokens,
         thinkingMode: config.thinkingMode,
+        reasoningEffort: config.reasoningEffort,
         ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),

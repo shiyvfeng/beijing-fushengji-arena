@@ -113,7 +113,7 @@ export interface CompetitionAudit {
   decisionPolicyHash: string;
   modelObservationVersion: string;
   contextPolicyVersion: "full-history-v1";
-  samplingPolicyVersion: "provider-default-audited-v1";
+  samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   publicRandomization: "shared-seed";
   personalRandomization: "slot-isolated";
   slotRotation: {

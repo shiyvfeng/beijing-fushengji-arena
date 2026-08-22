@@ -288,10 +288,12 @@ function validateTraces(
       if (!trace.agent.provider?.trim()
         || !trace.agent.model?.trim()
         || !trace.agent.providerAdapterVersion?.trim()
+        || !trace.agent.providerReasoningEffort
+        || trace.agent.providerReasoningEffort === "default"
         || !trace.agent.decisionPolicyId?.trim()
         || !/^sha256:[0-9a-f]{64}$/.test(trace.agent.decisionPolicyHash ?? "")) {
         throw new Error(
-          `Direct EpisodeTrace 缺少 Provider、模型或公平决策审计字段：${trace.episodeId}`,
+          `Direct EpisodeTrace 缺少 Provider、模型、显式思考等级或公平决策审计字段：${trace.episodeId}`,
         );
       }
       if (trace.agent.displayName !== undefined || trace.agent.personaId !== undefined) {
@@ -437,7 +439,7 @@ export function assembleMatchReplay(
       || competitionAudit.publicRandomization !== "shared-seed"
       || competitionAudit.personalRandomization !== "slot-isolated"
       || competitionAudit.contextPolicyVersion !== "full-history-v1"
-      || competitionAudit.samplingPolicyVersion !== "provider-default-audited-v1"
+      || competitionAudit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
       || competitionAudit.slotRotation.version !== "cyclic-v1"
       || competitionAudit.slotRotation.mappings.length !== 5) {
       throw new Error("Direct Replay competitionAudit 的预算或随机策略无效");
@@ -519,6 +521,9 @@ export function assembleMatchReplay(
       : {}),
     ...(trace.agent.providerThinkingMode
       ? { providerThinkingMode: trace.agent.providerThinkingMode }
+      : {}),
+    ...(trace.agent.providerReasoningEffort
+      ? { providerReasoningEffort: trace.agent.providerReasoningEffort }
       : {}),
     ...(trace.agent.declaredModelRevision
       ? { declaredModelRevision: trace.agent.declaredModelRevision }

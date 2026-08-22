@@ -77,12 +77,14 @@ function validateDrivers(drivers: readonly AgentDriver[]): ArenaExecutionMode {
       !descriptor.provider?.trim()
       || !descriptor.model?.trim()
       || !descriptor.providerAdapterVersion?.trim()
+      || !descriptor.providerReasoningEffort
+      || descriptor.providerReasoningEffort === "default"
       || !descriptor.decisionPolicyId?.trim()
       || !/^sha256:[0-9a-f]{64}$/.test(descriptor.decisionPolicyHash ?? "")
       || !driver.competitionProfile
     )) {
       throw new Error(
-        "Direct AgentDescriptor 必须声明 Provider、模型、适配器和统一决策策略",
+        "Direct AgentDescriptor 必须声明 Provider、模型、适配器、显式思考等级和统一决策策略",
       );
     }
     if (executionMode === "direct" && (descriptor.displayName !== undefined

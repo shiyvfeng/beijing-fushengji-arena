@@ -71,6 +71,11 @@ test("adapter fails closed on schema, fairness, identity and state violations", 
   rehashReplay(missingIdentity);
   assert.throws(() => adaptCoreMatchReplay(missingIdentity), /provider/);
 
+  const missingEffort = coreReplayFixture();
+  delete missingEffort.agents[2].providerReasoningEffort;
+  rehashReplay(missingEffort);
+  assert.throws(() => adaptCoreMatchReplay(missingEffort), /providerReasoningEffort/);
+
   const nonFinite = coreReplayFixture();
   nonFinite.days[7].agentSnapshots[2].state.cash = Number.NaN;
   nonFinite.replayHash = `sha256:${"0".repeat(64)}`;

@@ -33,6 +33,7 @@ const STATUSES: readonly PublicEpisodeStatus[] = [
 const TECHNICAL_STATUSES = new Set<PublicEpisodeStatus>([
   "model_timeout", "tool_limit", "loop_terminated", "runtime_error",
 ]);
+const EXPLICIT_REASONING_EFFORTS = new Set(["none", "low", "medium", "high", "xhigh", "max"]);
 const TECHNICAL_CATEGORIES: readonly TechnicalFailureCategory[] = [
   "timeout", "total_wall_clock", "context_limit", "action_budget", "invalid_action_loop",
   "transport_error", "http_error", "invalid_response", "invalid_action", "refusal", "incomplete", "driver_error",
@@ -145,7 +146,7 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
   const audit = requireObject(value, "Replay.competitionAudit");
   if (audit.fairnessClass !== "controlled-exhibition"
     || audit.contextPolicyVersion !== "full-history-v1"
-    || audit.samplingPolicyVersion !== "provider-default-audited-v1"
+    || audit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
     || audit.publicRandomization !== "shared-seed"
     || audit.personalRandomization !== "slot-isolated"
     || audit.automaticRetries !== 0) {
@@ -186,7 +187,7 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
     decisionPolicyHash: requireSha256(audit.decisionPolicyHash, "competitionAudit.decisionPolicyHash"),
     modelObservationVersion: requireString(audit.modelObservationVersion, "competitionAudit.modelObservationVersion"),
     contextPolicyVersion: "full-history-v1",
-    samplingPolicyVersion: "provider-default-audited-v1",
+    samplingPolicyVersion: "provider-explicit-effort-audited-v2",
     publicRandomization: "shared-seed",
     personalRandomization: "slot-isolated",
     slotRotation: { version: "cyclic-v1", rotationIndex, mappings },
@@ -277,6 +278,13 @@ function validateCoreMatchReplay(rawValue: unknown): ValidatedReplay {
       const provider = requireString(agent.provider, `${label}.provider`);
       const model = requireString(agent.model, `${label}.model`);
       requireString(agent.providerAdapterVersion, `${label}.providerAdapterVersion`);
+      const reasoningEffort = requireString(
+        agent.providerReasoningEffort,
+        `${label}.providerReasoningEffort`,
+      );
+      if (!EXPLICIT_REASONING_EFFORTS.has(reasoningEffort)) {
+        throw new Error(`${label}.providerReasoningEffort 必须是显式等级`);
+      }
       identities.add(`${normalizedProviderIdentity(provider)}\0${model.trim()}`);
     }
   }

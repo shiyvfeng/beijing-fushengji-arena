@@ -37,18 +37,18 @@ Runner 在任何联网请求前执行以下门禁：
 
 ## Provider 协议
 
-| Provider 别名 | 协议 | Base URL 示例 |
-| --- | --- | --- |
-| `gpt` / `openai` | OpenAI Responses | `https://api.openai.com/v1` |
-| `claude` / `anthropic` | Anthropic Messages | `https://api.anthropic.com/v1` |
-| `deepseek` | OpenAI-compatible Chat Completions | `https://api.deepseek.com` |
-| `qwen` / `dashscope` | OpenAI-compatible Chat Completions | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
-| `kimi` / `moonshot` | OpenAI-compatible Chat Completions | `https://api.moonshot.cn/v1` |
-| `openai-compatible` / `openai-chat` | 通用 Chat Completions | 使用者明确提供 |
+| Provider 别名 | 协议 | Base URL 示例 | 原生最高 effort |
+| --- | --- | --- | --- |
+| `gpt` / `openai` | OpenAI Responses | `https://api.openai.com/v1` | `max` |
+| `claude` / `anthropic` | Anthropic Messages | `https://api.anthropic.com/v1` | `max` |
+| `deepseek` | OpenAI-compatible Chat Completions | `https://api.deepseek.com` | `max` |
+| `qwen` / `dashscope` | OpenAI-compatible Chat Completions | `https://dashscope.aliyuncs.com/compatible-mode/v1` | `xhigh` |
+| `kimi` / `moonshot` | OpenAI-compatible Chat Completions | `https://api.moonshot.cn/v1` | `max` |
+| `openai-compatible` / `openai-chat` | 通用 Chat Completions | 使用者明确提供 | 由兼容服务决定 |
 
-OpenAI 使用 `/responses` 与严格 JSON Schema；Anthropic 使用 `/messages`；其余兼容服务使用 `/chat/completions`。DeepSeek 的 `THINKING` 可选 `default`、`disabled`、`enabled`，动作场景建议显式 `disabled`。Provider 适配器统一返回严格 `GameAction`、Token usage、响应 revision 和安全错误分类。
+OpenAI 使用 `/responses` 与严格 JSON Schema；Anthropic 使用 `/messages`；其余兼容服务使用 `/chat/completions`。五组都必须显式配置 `REASONING_EFFORT`：OpenAI 支持 `none/low/medium/high/xhigh/max`，Anthropic 支持 `low/medium/high/xhigh/max`，DeepSeek 与 Kimi 支持 `low/high/max`，Qwen 支持 `low/medium/xhigh`。DeepSeek 的独立 `THINKING` 开关可选 `default`、`disabled`、`enabled`；配置非默认 effort 时不得关闭思考。Provider 适配器统一返回严格 `GameAction`、Token usage、响应 revision 和安全错误分类。
 
-采样策略固定为 `provider-default-audited-v1`：Runner 不额外发送 `temperature` 或 `top_p`，逐请求记录两者被省略，并记录实际 max tokens、JSON mode 和 thinking。每组可用 `MODEL_REVISION` 声明 revision；适配器优先使用响应值，缺失时回退声明，再缺失为 `unavailable`。声明与响应冲突只记录 mismatch，不中断比赛。
+采样策略固定为 `provider-explicit-effort-audited-v2`：Runner 不额外发送 `temperature` 或 `top_p`，逐请求记录两者被省略，并记录实际 max tokens、JSON mode、thinking 开关、reasoning effort 及其是否实际发送。每组可用 `MODEL_REVISION` 声明 revision；适配器优先使用响应值，缺失时回退声明，再缺失为 `unavailable`。声明与响应冲突只记录 mismatch，不中断比赛。
 
 ## 本地配置
 
@@ -59,10 +59,11 @@ ARENA_AGENT_A_PROVIDER=openai
 ARENA_AGENT_A_BASE_URL=https://api.openai.com/v1
 ARENA_AGENT_A_API_KEY=
 ARENA_AGENT_A_MODEL=
+ARENA_AGENT_A_REASONING_EFFORT=max
 ARENA_AGENT_A_MODEL_REVISION=
-ARENA_AGENT_A_THINKING=default
 
 # ARENA_AGENT_B...E 使用同样字段
+# DeepSeek 另需显式开启思考：ARENA_AGENT_C_THINKING=enabled
 
 ARENA_SEED=20260820
 ARENA_MAX_ACTIONS_PER_AGENT=160
@@ -73,7 +74,7 @@ ARENA_SLOT_ROTATION_INDEX=0
 ARENA_SAVE_RAW_EXCHANGES=false
 ```
 
-`--agent-a-model` 至 `--agent-e-model` 可临时覆盖 model。E 槽已纳入 CLI allowlist、构建子进程环境清理和凭据扫描。实现过程不会修改真实本地 `.env`。
+`--agent-a-model` 至 `--agent-e-model` 可临时覆盖 model。E 槽与五组 `REASONING_EFFORT` 均已纳入 CLI allowlist、配置指纹和凭据扫描；Runner 本身不会改写本地 `.env`。
 
 ## 运行顺序与 Probe 门禁
 
@@ -95,7 +96,7 @@ npm run arena:direct -- \
 
 `--probe-providers` 本身授权五次在线请求：A–E 并行各请求一次、零重试；一家失败仍尝试其余四家。每个返回动作还会在独立初始环境中严格执行。Probe 必须指定输出目录，并原子写入或替换 `probe-summary.json`；只要该目录还没有比赛产物，就可以重新 Probe。
 
-摘要格式为 `arena-provider-probe-v2`，包含五次尝试、配置指纹、Prompt/context/sampling 版本、action、usage、latency、revision 和安全故障归属，并有独立摘要 hash。配置指纹覆盖 match、seed、scenario、五组 Provider/model/adapter、端点指纹、revision 声明、预算、轮换、上下文和采样策略，不包含 API Key 或其 hash。
+摘要格式为 `arena-provider-probe-v2`，包含五次尝试、配置指纹、Prompt/context/sampling 版本、action、usage、latency、revision 和安全故障归属，并有独立摘要 hash。配置指纹覆盖 match、seed、scenario、五组 Provider/model/adapter、端点指纹、thinking、reasoning effort、revision 声明、预算、轮换、上下文和采样策略，不包含 API Key 或其 hash。
 
 由于指纹刻意不接触密钥，只更换 API Key 无法被比赛门禁识别。发生密钥轮换时，操作者必须主动在同一空目录重新 Probe。
 

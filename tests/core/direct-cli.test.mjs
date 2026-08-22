@@ -27,6 +27,7 @@ const CONFIG_ENV_NAMES = [
     `ARENA_AGENT_${letter}_MODEL`,
     `ARENA_AGENT_${letter}_MODEL_REVISION`,
     `ARENA_AGENT_${letter}_THINKING`,
+    `ARENA_AGENT_${letter}_REASONING_EFFORT`,
   ]),
   "ARENA_OUTPUT_DIR", "ARENA_MATCH_ID", "ARENA_SEED", "ARENA_MAX_ACTIONS_PER_AGENT",
   "ARENA_DECISION_TIMEOUT_MS", "ARENA_TOTAL_WALL_CLOCK_MS", "ARENA_MAX_OUTPUT_TOKENS",
@@ -58,6 +59,7 @@ function providerLines(outputDir, overrides = {}) {
     "https://api.moonshot.cn/v1",
   ];
   const lines = [];
+  const highestEfforts = ["max", "max", "max", "xhigh", "max"];
   CONFIG_LETTERS.forEach((letter, index) => {
     const base = {
       provider: providers[index],
@@ -65,7 +67,8 @@ function providerLines(outputDir, overrides = {}) {
       apiKey: `${TEST_SECRET}-${letter.toLowerCase()}`,
       model: `model-${letter.toLowerCase()}`,
       revision: `revision-${letter.toLowerCase()}`,
-      thinking: index === 2 ? "disabled" : undefined,
+      thinking: index === 2 ? "enabled" : undefined,
+      reasoningEffort: highestEfforts[index],
     };
     const config = { ...base, ...(overrides[letter] ?? {}) };
     lines.push(
@@ -74,6 +77,7 @@ function providerLines(outputDir, overrides = {}) {
       `ARENA_AGENT_${letter}_API_KEY=${config.apiKey}`,
       `ARENA_AGENT_${letter}_MODEL=${config.model}`,
       `ARENA_AGENT_${letter}_MODEL_REVISION=${config.revision}`,
+      `ARENA_AGENT_${letter}_REASONING_EFFORT=${config.reasoningEffort}`,
     );
     if (config.thinking !== undefined) lines.push(`ARENA_AGENT_${letter}_THINKING=${config.thinking}`);
   });
@@ -92,6 +96,7 @@ function fakeProviderEnv() {
     env[`ARENA_AGENT_${letter}_MODEL`] = `model-${index + 1}`;
     env[`ARENA_AGENT_${letter}_MODEL_REVISION`] = `revision-${index + 1}`;
     env[`ARENA_AGENT_${letter}_THINKING`] = "default";
+    env[`ARENA_AGENT_${letter}_REASONING_EFFORT`] = "max";
   });
   return env;
 }
@@ -111,6 +116,7 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /ARENA_AGENT_A/);
   assert.match(result.stdout, /A\.\.\.E/);
   assert.match(result.stdout, /MODEL_REVISION/);
+  assert.match(result.stdout, /REASONING_EFFORT/);
   assert.match(result.stdout, /--total-wall-clock-ms/);
   assert.match(result.stdout, /--slot-rotation-index/);
   assert.match(result.stdout, /5 × 160 = 800/);
@@ -130,6 +136,7 @@ test("config check validates five normalized identities without requiring output
   assert.match(result.stdout, /competitor-5, slot 3/);
   assert.match(result.stdout, /kimi \+ cli\/model-e/);
   assert.match(result.stdout, /每 Agent 总墙钟: 9600000 ms/);
+  assert.equal((result.stdout.match(/Reasoning effort:/g) ?? []).length, 5);
   assert.equal(result.stdout.includes("输出目录:"), false);
   assert.equal(`${result.stdout}${result.stderr}`.includes(TEST_SECRET), false);
 });
@@ -152,6 +159,20 @@ test("path-like match IDs fail configuration validation before networking", t =>
 });
 
 test("missing E, sixth groups and alias-normalized duplicates fail before networking", t => {
+  const missingEffort = providerLines("").filter(
+    line => !line.startsWith("ARENA_AGENT_A_REASONING_EFFORT="),
+  );
+  const { path: missingEffortPath } = createEnvFixture(t, missingEffort);
+  const missingEffortResult = runCli(["--env-file", missingEffortPath, "--check-config"]);
+  assert.equal(missingEffortResult.status, 1);
+  assert.match(missingEffortResult.stderr, /配置 A.*REASONING_EFFORT/);
+
+  const defaultEffortLines = providerLines("", { A: { reasoningEffort: "default" } });
+  const { path: defaultEffortPath } = createEnvFixture(t, defaultEffortLines);
+  const defaultEffortResult = runCli(["--env-file", defaultEffortPath, "--check-config"]);
+  assert.equal(defaultEffortResult.status, 1);
+  assert.match(defaultEffortResult.stderr, /配置 A.*REASONING_EFFORT.*不能为 default/);
+
   const missing = providerLines("").filter(line => !line.startsWith("ARENA_AGENT_E_PROVIDER="));
   const { path: missingPath } = createEnvFixture(t, missing);
   const missingResult = runCli(["--env-file", missingPath, "--check-config"]);

@@ -8,6 +8,7 @@ import type {
   ModelDecisionEvidence,
   ModelObservation,
   Observation,
+  ProviderReasoningEffort,
   ProviderThinkingMode,
   StepResult,
   TechnicalFailureCategory,
@@ -141,13 +142,17 @@ export interface DirectProviderDecisionResult {
 }
 
 export interface SamplingAudit {
-  readonly policyVersion: "provider-default-audited-v1";
+  readonly policyVersion: "provider-explicit-effort-audited-v2";
   readonly temperature: "omitted";
   readonly topP: "omitted";
   readonly maxOutputTokens: number;
   readonly jsonMode: "none" | "json-object" | "json-schema";
   readonly thinking: {
     readonly mode: ProviderThinkingMode;
+    readonly sent: boolean;
+  };
+  readonly reasoningEffort: {
+    readonly level: ProviderReasoningEffort;
     readonly sent: boolean;
   };
 }
@@ -157,7 +162,7 @@ export interface DirectCompetitionProfile {
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
   readonly contextPolicyVersion: "full-history-v1";
-  readonly samplingPolicyVersion: "provider-default-audited-v1";
+  readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly maxOutputTokensPerRequest: number;
 }
 
@@ -219,6 +224,7 @@ export interface DirectModelProviderAdapter {
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode?: ProviderThinkingMode;
+  readonly reasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly samplingAudit?: SamplingAudit;
   requestDecision(input: DirectModelDecisionInput): Promise<DirectProviderDecisionResult>;

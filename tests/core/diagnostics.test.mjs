@@ -152,6 +152,7 @@ async function runDiagnosticMatch(diagnosticsRoot, enabled, secret) {
       baseUrl: `https://provider-${index + 1}.invalid/v1`,
       model: `fake-model-${index + 1}`,
       maxOutputTokens: 64,
+      reasoningEffort: "max",
       ...(recorder ? { exchangeRecorder: recorder } : {}),
       fetchImpl: async () => new Response(JSON.stringify({
         error: { message: "temporary upstream failure" },

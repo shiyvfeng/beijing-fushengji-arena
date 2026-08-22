@@ -87,6 +87,7 @@ export function coreReplayFixture(): any {
       provider: `provider-${slot}`,
       model: `model-${slot}`,
       providerAdapterVersion: `adapter-${slot}-v3`,
+      providerReasoningEffort: "max",
       status: result.status,
       finalNetWorth: result.finalNetWorth,
       rank: slot === 4 ? null : slot + 1,
@@ -160,7 +161,7 @@ export function coreReplayFixture(): any {
       decisionPolicyHash: policyHash,
       modelObservationVersion: "identity-free-v1",
       contextPolicyVersion: "full-history-v1",
-      samplingPolicyVersion: "provider-default-audited-v1",
+      samplingPolicyVersion: "provider-explicit-effort-audited-v2",
       publicRandomization: "shared-seed",
       personalRandomization: "slot-isolated",
       slotRotation: {

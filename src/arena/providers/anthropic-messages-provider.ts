@@ -1,4 +1,5 @@
 import type { DirectModelProviderAdapter, DirectModelDecisionInput, SamplingAudit } from "../agent-driver.js";
+import type { ProviderReasoningEffort } from "../../core/contracts.js";
 import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
@@ -24,6 +25,7 @@ export interface AnthropicMessagesProviderOptions {
   readonly baseUrl: string;
   readonly model: string;
   readonly maxOutputTokens?: number;
+  readonly reasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly fetchImpl?: typeof globalThis.fetch;
   readonly exchangeRecorder?: RawExchangeRecorder;
@@ -83,9 +85,10 @@ function collectAnthropicText(
 
 export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
   readonly providerId: string;
-  readonly adapterVersion = "anthropic-messages-v2";
+  readonly adapterVersion = "anthropic-messages-v3";
   readonly modelId: string;
   readonly maxOutputTokens: number;
+  readonly reasoningEffort: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly samplingAudit: SamplingAudit;
 
@@ -103,16 +106,24 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
       this.providerId,
     );
+    this.reasoningEffort = options.reasoningEffort ?? "default";
+    if (!["default", "low", "medium", "high", "xhigh", "max"].includes(this.reasoningEffort)) {
+      throw new Error("Anthropic reasoningEffort 配置无效");
+    }
     if (options.declaredModelRevision?.trim()) {
       this.declaredModelRevision = options.declaredModelRevision.trim();
     }
     this.samplingAudit = Object.freeze({
-      policyVersion: "provider-default-audited-v1",
+      policyVersion: "provider-explicit-effort-audited-v2",
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: this.maxOutputTokens,
       jsonMode: "none",
       thinking: Object.freeze({ mode: "default", sent: false }),
+      reasoningEffort: Object.freeze({
+        level: this.reasoningEffort,
+        sent: this.reasoningEffort !== "default",
+      }),
     });
     this.#fetch = options.fetchImpl ?? globalThis.fetch;
     this.#exchangeRecorder = options.exchangeRecorder;
@@ -128,6 +139,9 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       system: buildArenaSystemInstruction(input),
       messages: [{ role: "user", content: buildArenaUserContext(input) }],
       stream: false,
+      ...(this.reasoningEffort === "default"
+        ? {}
+        : { output_config: { effort: this.reasoningEffort } }),
     };
 
     const requestHeaders = {

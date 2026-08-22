@@ -2,6 +2,7 @@ import { performance } from "node:perf_hooks";
 import type {
   FaultDomain,
   GameAction,
+  ProviderReasoningEffort,
   ProviderThinkingMode,
   ScenarioConfig,
   TechnicalFailureCategory,
@@ -40,6 +41,7 @@ export interface ProviderProbeEntry {
   readonly model: string;
   readonly providerAdapterVersion: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly providerReasoningEffort: ProviderReasoningEffort;
   readonly passed: boolean;
   readonly action: GameAction | null;
   readonly usage: ProviderTokenUsage | null;
@@ -74,6 +76,7 @@ export interface ProbeFingerprintAgent {
   readonly endpointFingerprint: string;
   readonly declaredModelRevision: string | null;
   readonly thinkingMode: ProviderThinkingMode;
+  readonly reasoningEffort: ProviderReasoningEffort;
 }
 
 export interface ProbeFingerprintInput {
@@ -127,6 +130,7 @@ function normalizeDecision(value: GameAction | AgentDecisionOutput): AgentDecisi
 }
 
 function fallbackSampling(driver: AgentDriver): SamplingAudit {
+  const reasoningEffort = driver.descriptor.providerReasoningEffort ?? "default";
   return Object.freeze({
     policyVersion: DIRECT_SAMPLING_POLICY_VERSION,
     temperature: "omitted",
@@ -136,6 +140,10 @@ function fallbackSampling(driver: AgentDriver): SamplingAudit {
     thinking: Object.freeze({
       mode: driver.descriptor.providerThinkingMode ?? "default",
       sent: (driver.descriptor.providerThinkingMode ?? "default") !== "default",
+    }),
+    reasoningEffort: Object.freeze({
+      level: reasoningEffort,
+      sent: reasoningEffort !== "default",
     }),
   });
 }
@@ -159,6 +167,7 @@ function entryBase(driver: AgentDriver) {
     model: descriptor.model ?? "unknown",
     providerAdapterVersion: descriptor.providerAdapterVersion ?? "unknown",
     ...(descriptor.providerThinkingMode ? { providerThinkingMode: descriptor.providerThinkingMode } : {}),
+    providerReasoningEffort: descriptor.providerReasoningEffort ?? "default",
   };
 }
 
@@ -273,7 +282,7 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
 export function computeProbeConfigFingerprint(input: ProbeFingerprintInput): string {
   if (input.agents.length !== 5) throw new Error("Probe 配置指纹必须包含五个 Agent");
   return integrityHash({
-    contract: "arena-provider-probe-config-v2",
+    contract: "arena-provider-probe-config-v3",
     matchId: input.matchId,
     seed: input.seed,
     scenarioId: input.scenario.id,
@@ -329,6 +338,8 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
       || !descriptor.provider?.trim()
       || !descriptor.model?.trim()
       || !descriptor.providerAdapterVersion?.trim()
+      || !descriptor.providerReasoningEffort
+      || descriptor.providerReasoningEffort === "default"
       || driver.competitionProfile?.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
       || driver.competitionProfile?.samplingPolicyVersion !== DIRECT_SAMPLING_POLICY_VERSION) {
       throw new Error("Provider Probe 的五个 Direct Agent 配置或 cyclic-v1 映射无效");
@@ -388,11 +399,15 @@ export function assertMatchingProviderProbe(
       || typeof entry.provider !== "string"
       || typeof entry.model !== "string"
       || typeof entry.providerAdapterVersion !== "string"
+      || typeof entry.providerReasoningEffort !== "string"
+      || entry.providerReasoningEffort === "default"
       || typeof entry.usageMissing !== "boolean"
       || typeof entry.latencyMs !== "number"
       || !Number.isFinite(entry.latencyMs)
       || entry.latencyMs < 0
-      || entry.sampling?.policyVersion !== DIRECT_SAMPLING_POLICY_VERSION)
+      || entry.sampling?.policyVersion !== DIRECT_SAMPLING_POLICY_VERSION
+      || entry.sampling.reasoningEffort?.level !== entry.providerReasoningEffort
+      || entry.sampling.reasoningEffort.sent !== true)
     || entryIds.size !== 5
     || [...entryIds].sort().join("\0") !== [1, 2, 3, 4, 5].map(index => `competitor-${index}`).join("\0")
     || entrySlots.size !== 5

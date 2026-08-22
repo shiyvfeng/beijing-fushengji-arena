@@ -9,6 +9,14 @@ export type DriverKind = "direct" | "mcp" | "scripted";
 export type ArenaExecutionMode = "direct" | "scripted";
 export type MapKind = "subway" | "surface";
 export type ProviderThinkingMode = "default" | "disabled" | "enabled";
+export type ProviderReasoningEffort =
+  | "default"
+  | "none"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 
 export type TechnicalDnfStatus =
   | "model_timeout"
@@ -269,6 +277,7 @@ export interface AgentDescriptor {
   readonly model?: string;
   readonly providerAdapterVersion?: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly providerReasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
 }
 
@@ -306,6 +315,7 @@ export interface ReplayAgent {
   readonly model?: string;
   readonly providerAdapterVersion?: string;
   readonly providerThinkingMode?: ProviderThinkingMode;
+  readonly providerReasoningEffort?: ProviderReasoningEffort;
   readonly declaredModelRevision?: string;
   readonly status: Exclude<EpisodeStatus, "running">;
   readonly finalNetWorth: number;
@@ -342,7 +352,7 @@ export interface CompetitionAudit {
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
   readonly contextPolicyVersion: "full-history-v1";
-  readonly samplingPolicyVersion: "provider-default-audited-v1";
+  readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly publicRandomization: "shared-seed";
   readonly personalRandomization: "slot-isolated";
   readonly slotRotation: {

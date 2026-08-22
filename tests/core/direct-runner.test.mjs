@@ -48,15 +48,17 @@ function fakeProvider(entryIndex, {
     adapterVersion: "fake-adapter-v3",
     modelId: `fake-model-${entryIndex}`,
     maxOutputTokens: 128,
-    thinkingMode: "disabled",
+    thinkingMode: "enabled",
+    reasoningEffort: "max",
     declaredModelRevision: `declared-${entryIndex}`,
     samplingAudit: {
-      policyVersion: "provider-default-audited-v1",
+      policyVersion: "provider-explicit-effort-audited-v2",
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: 128,
       jsonMode: "json-object",
-      thinking: { mode: "disabled", sent: true },
+      thinking: { mode: "enabled", sent: true },
+      reasoningEffort: { level: "max", sent: true },
     },
     async requestDecision(input) {
       captures.push(structuredClone({
@@ -151,12 +153,14 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
   assert.equal(output.replay.competitionAudit.decisionPolicyId, DIRECT_DECISION_POLICY_ID);
   assert.equal(output.replay.competitionAudit.decisionPolicyHash, DIRECT_DECISION_POLICY_HASH);
   assert.equal(output.replay.competitionAudit.contextPolicyVersion, DIRECT_CONTEXT_POLICY_VERSION);
-  assert.equal(output.replay.competitionAudit.samplingPolicyVersion, "provider-default-audited-v1");
+  assert.equal(output.replay.competitionAudit.samplingPolicyVersion, "provider-explicit-effort-audited-v2");
   assert.equal(output.replay.competitionAudit.slotRotation.version, "cyclic-v1");
   assert.equal(output.replay.competitionAudit.totalWallClockMsPerAgent, 160_000);
   assert.equal(output.replay.personalRandomEventAudit.agents.length, 5);
   assert.equal("luckiestAgentIds" in output.replay.personalRandomEventAudit, false);
   assert.ok(output.replay.agents.every(agent => agent.displayName === undefined && agent.personaId === undefined));
+  assert.ok(output.replay.agents.every(agent => agent.providerReasoningEffort === "max"));
+  assert.ok(output.traces.every(trace => trace.agent.providerReasoningEffort === "max"));
   assert.equal(new Set(output.replay.agents.map(agent => `${agent.provider}:${agent.model}`)).size, 5);
 
   for (const entries of captures) {
@@ -181,6 +185,7 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
   assert.equal(report.probe.summaryHash, PROBE_HASH);
   assert.equal(report.totals.requestCount, report.totals.successfulRequests);
   assert.equal(report.totals.failedRequests, 0);
+  assert.ok(report.agents.every(agent => agent.providerReasoningEffort === "max"));
   const missingUsageAgent = report.agents.find(agent => agent.agentId === "competitor-5");
   assert.equal(report.totals.tokens.requestsWithoutUsage, missingUsageAgent.requestCount);
   assert.equal(
@@ -274,6 +279,7 @@ test("per-Agent total wall clock terminates only the exhausted contestant", asyn
     adapterVersion: "slow-v1",
     modelId: "slow-model",
     maxOutputTokens: 128,
+    reasoningEffort: "max",
     requestDecision() { return new Promise(() => {}); },
   } : fakeProvider(index));
   const { drivers } = directDrivers({ providers });
@@ -354,6 +360,15 @@ test("Direct Match rejects count, alias duplicates, internal IDs, personas and i
   await assert.rejects(
     runMatch({ matchId: "persona", seed: 1, scenario: DEFAULT_SCENARIO, drivers: persona.drivers }),
     /禁止 displayName/,
+  );
+  const missingEffort = directDrivers();
+  missingEffort.drivers[0] = {
+    ...missingEffort.drivers[0],
+    descriptor: { ...missingEffort.drivers[0].descriptor, providerReasoningEffort: "default" },
+  };
+  await assert.rejects(
+    runMatch({ matchId: "missing-effort", seed: 1, scenario: DEFAULT_SCENARIO, drivers: missingEffort.drivers }),
+    /显式思考等级/,
   );
   const rotated = directDrivers({ rotationIndex: 1 });
   await assert.rejects(

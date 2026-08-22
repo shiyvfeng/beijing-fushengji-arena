@@ -5,7 +5,7 @@ import type { AgentDecisionHistoryEntry } from "./agent-driver.js";
 export const DIRECT_DECISION_POLICY_ID = "neutral-v1" as const;
 export const DIRECT_MODEL_OBSERVATION_VERSION = "identity-free-v1" as const;
 export const DIRECT_CONTEXT_POLICY_VERSION = "full-history-v1" as const;
-export const DIRECT_SAMPLING_POLICY_VERSION = "provider-default-audited-v1" as const;
+export const DIRECT_SAMPLING_POLICY_VERSION = "provider-explicit-effort-audited-v2" as const;
 
 export const DIRECT_DECISION_POLICY_TEXT = [
   "Maximize final net worth while staying alive and completing the full 40-day episode.",
