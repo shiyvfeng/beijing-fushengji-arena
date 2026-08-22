@@ -571,4 +571,41 @@ test("Assisted Probe and ten-autonomous-day Stability use isolated gate artifact
   assert.equal(stability.passed, true);
   assert.ok(stability.entries.every(entry => entry.autonomousDays === 10 && entry.assistedDays === 0));
   assert.doesNotThrow(() => assertMatchingProviderStability(stability, fingerprint, probe));
+
+  const waivedBody = structuredClone(stability);
+  delete waivedBody.stabilitySummaryHash;
+  waivedBody.passed = false;
+  waivedBody.entries[0].passed = false;
+  waivedBody.entries[0].autonomousDays = 9;
+  waivedBody.entries[0].assistedDays = 1;
+  const waived = {
+    ...waivedBody,
+    stabilitySummaryHash: integrityHash(waivedBody),
+  };
+  assert.throws(
+    () => assertMatchingProviderStability(waived, fingerprint, probe),
+    /Stability Probe 摘要/,
+  );
+  assert.doesNotThrow(() => assertMatchingProviderStability(
+    waived,
+    fingerprint,
+    probe,
+    { allowAssistedDays: true },
+  ));
+
+  const incompleteBody = structuredClone(waivedBody);
+  incompleteBody.entries[0].autonomousDays = 8;
+  const incomplete = {
+    ...incompleteBody,
+    stabilitySummaryHash: integrityHash(incompleteBody),
+  };
+  assert.throws(
+    () => assertMatchingProviderStability(
+      incomplete,
+      fingerprint,
+      probe,
+      { allowAssistedDays: true },
+    ),
+    /Stability Probe 摘要/,
+  );
 });

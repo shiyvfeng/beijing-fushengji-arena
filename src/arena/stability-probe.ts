@@ -103,6 +103,16 @@ export interface ProviderStabilityResult {
   readonly stabilitySummaryHash: string;
 }
 
+export interface ProviderStabilityAssertionOptions {
+  /**
+   * Match-gate-only waiver for completion-assisted runs. The Stability facts
+   * remain failed; this merely accepts entries whose ten settled days include
+   * explicit assisted days. Strict Direct and malformed/incomplete summaries
+   * remain fail-closed.
+   */
+  readonly allowAssistedDays?: boolean;
+}
+
 function countBy<T extends string>(values: readonly T[]): Readonly<Partial<Record<T, number>>> {
   const counts: Partial<Record<T, number>> = {};
   for (const value of values) counts[value] = (counts[value] ?? 0) + 1;
@@ -235,6 +245,7 @@ export function assertMatchingProviderStability(
   value: unknown,
   configFingerprint: string,
   probe: ProviderProbeResult,
+  options: ProviderStabilityAssertionOptions = {},
 ): asserts value is ProviderStabilityResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("stability-summary.json 结构无效");
@@ -243,15 +254,41 @@ export function assertMatchingProviderStability(
   const { stabilitySummaryHash, ...body } = summary;
   const entries = Array.isArray(summary.entries) ? summary.entries : [];
   const assisted = probe.runTrack === COMPLETION_RUN_TRACK;
+  const allowAssistedDays = assisted && options.allowAssistedDays === true;
   const ids = new Set(entries.map(entry => entry?.agentId));
   const slots = new Set(entries.map(entry => entry?.agentSlot));
+  const entriesMatchGate = entries.every(entry => {
+    if (!entry
+      || entry.providerReasoningEffort === "default"
+      || entry.requestCount < STABILITY_ACTION_TARGET
+      || entry.requestCount > STABILITY_ACTION_TARGET * DIRECT_MAX_ATTEMPTS_PER_DECISION
+      || entry.terminal?.category !== "action_budget") {
+      return false;
+    }
+    if (!assisted) {
+      return entry.passed === true && entry.validActions === STABILITY_ACTION_TARGET;
+    }
+    const autonomousDays = entry.autonomousDays;
+    const assistedDays = entry.assistedDays;
+    if (!Number.isSafeInteger(autonomousDays)
+      || !Number.isSafeInteger(assistedDays)
+      || Number(autonomousDays) < 0
+      || Number(assistedDays) < 0
+      || Number(autonomousDays) + Number(assistedDays) !== STABILITY_ACTION_TARGET) {
+      return false;
+    }
+    const independentlyPassed = autonomousDays === STABILITY_ACTION_TARGET && assistedDays === 0;
+    return entry.passed === independentlyPassed && (independentlyPassed || allowAssistedDays);
+  });
+  const computedPassed = entries.length === 5 && entries.every(entry => entry?.passed === true);
   if (summary.artifactType !== (assisted
     ? "arena-provider-stability-v2"
     : "arena-provider-stability-v1")
     || (summary.runTrack === COMPLETION_RUN_TRACK) !== assisted
     || (!assisted && summary.runTrack !== undefined)
     || summary.matchId !== probe.matchId
-    || summary.passed !== true
+    || summary.passed !== computedPassed
+    || (!allowAssistedDays && summary.passed !== true)
     || summary.configFingerprint !== configFingerprint
     || summary.actionTargetPerAgent !== STABILITY_ACTION_TARGET
     || (assisted && summary.autonomousDayTargetPerAgent !== STABILITY_ACTION_TARGET)
@@ -280,14 +317,7 @@ export function assertMatchingProviderStability(
     || typeof summary.createdAt !== "string"
     || Number.isNaN(Date.parse(summary.createdAt))
     || entries.length !== 5
-    || entries.some(entry => !entry || entry.passed !== true
-      || (assisted
-        ? entry.autonomousDays !== STABILITY_ACTION_TARGET || entry.assistedDays !== 0
-        : entry.validActions !== STABILITY_ACTION_TARGET)
-      || entry.providerReasoningEffort === "default"
-      || entry.requestCount < STABILITY_ACTION_TARGET
-      || entry.requestCount > STABILITY_ACTION_TARGET * DIRECT_MAX_ATTEMPTS_PER_DECISION
-      || entry.terminal?.category !== "action_budget")
+    || !entriesMatchGate
     || ids.size !== 5
     || [...ids].sort().join("\0") !== [1, 2, 3, 4, 5].map(index => `competitor-${index}`).join("\0")
     || slots.size !== 5

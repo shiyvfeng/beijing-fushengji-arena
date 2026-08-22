@@ -121,10 +121,23 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /--total-wall-clock-ms/);
   assert.match(result.stdout, /--slot-rotation-index/);
   assert.match(result.stdout, /--completion-assisted/);
+  assert.match(result.stdout, /--accept-assisted-stability/);
   assert.match(result.stdout, /--provider-time-budget-ms/);
   assert.match(result.stdout, /5 × 160 × 3 = 2400/);
   assert.match(result.stdout, /probe-summary\.json/);
   assert.match(result.stdout, /stability-summary\.json/);
+});
+
+test("assisted Stability waiver requires an explicit completion-assisted live match", t => {
+  const { path } = createEnvFixture(t, providerLines(""));
+  const result = runCli([
+    "--env-file", path,
+    "--completion-assisted",
+    "--accept-assisted-stability",
+    "--check-config",
+  ]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /只能与 --completion-assisted --confirm-live-run 同时使用/);
 });
 
 test("completion-assisted config is explicit and reports its isolated budget and recovery track", t => {

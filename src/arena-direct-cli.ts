@@ -96,6 +96,7 @@ interface DirectCliOptions {
   readonly probeProviders: boolean;
   readonly stabilityProbe: boolean;
   readonly completionAssisted: boolean;
+  readonly acceptAssistedStability: boolean;
 }
 
 interface EnvFileSelection {
@@ -107,6 +108,7 @@ interface EnvFileSelection {
 interface ArtifactTargets {
   readonly probe: string;
   readonly stability: string;
+  readonly stabilityWaiver: string;
   readonly replay: string;
   readonly traces: string;
   readonly report: string;
@@ -141,6 +143,7 @@ function usage(): string {
     "  --probe-providers                 五组并行各请求一次并原子写 probe-summary.json",
     "  --stability-probe                 五组并行各完成 10 个自主游戏日并写 stability-summary.json",
     "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe + Stability 门禁",
+    "  --accept-assisted-stability       仅 Assisted Match：保留失败事实并显式豁免已结算的辅助日",
     "  --check-config                    脱敏检查，不联网、不写产物",
     "  --help",
     "",
@@ -287,6 +290,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let probeProviderConnections = false;
   let stabilityProbe = false;
   let completionAssisted = false;
+  let acceptAssistedStability = false;
 
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
@@ -309,6 +313,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--completion-assisted") {
       completionAssisted = true;
+      continue;
+    }
+    if (argument === "--accept-assisted-stability") {
+      acceptAssistedStability = true;
       continue;
     }
     const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(argument);
@@ -417,6 +425,9 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   if (selectedModes > 1) {
     throw new Error("--probe-providers、--stability-probe、--confirm-live-run 与 --check-config 互斥");
   }
+  if (acceptAssistedStability && (!completionAssisted || !confirmLiveRun)) {
+    throw new Error("--accept-assisted-stability 只能与 --completion-assisted --confirm-live-run 同时使用");
+  }
   if (!outputDir && !checkConfig) {
     throw new Error("Probe、Stability Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
   }
@@ -441,6 +452,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     probeProviders: probeProviderConnections,
     stabilityProbe,
     completionAssisted,
+    acceptAssistedStability,
   };
 }
 
@@ -448,6 +460,7 @@ function artifactTargets(outputDir: string): ArtifactTargets {
   return {
     probe: join(outputDir, "probe-summary.json"),
     stability: join(outputDir, "stability-summary.json"),
+    stabilityWaiver: join(outputDir, "stability-waiver.json"),
     replay: join(outputDir, "replay.json"),
     traces: join(outputDir, "episode-traces.json"),
     report: join(outputDir, "run-report.json"),
@@ -475,6 +488,105 @@ function atomicWriteJson(path: string, value: unknown): void {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   renameSync(temporary, path);
+}
+
+interface StabilityWaiverRecord {
+  readonly artifactType: "arena-stability-waiver-v1";
+  readonly runTrack: typeof COMPLETION_RUN_TRACK;
+  readonly matchId: string;
+  readonly createdAt: string;
+  readonly scope: "match-gate-only";
+  readonly disposition: "explicit-assisted-stability-waiver";
+  readonly probeSummaryHash: string;
+  readonly stabilitySummaryHash: string;
+  readonly stabilityPassed: false;
+  readonly failedEntries: readonly {
+    readonly agentId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly autonomousDays: number;
+    readonly assistedDays: number;
+  }[];
+  readonly waiverHash: string;
+}
+
+function stabilityWaiverBody(
+  stability: ProviderStabilityResult,
+  probe: ProviderProbeResult,
+  createdAt: string,
+): Omit<StabilityWaiverRecord, "waiverHash"> {
+  if (stability.runTrack !== COMPLETION_RUN_TRACK || stability.passed !== false) {
+    throw new Error("Stability 豁免只适用于未通过的 completion-assisted-v1 摘要");
+  }
+  const failedEntries = stability.entries
+    .filter(entry => !entry.passed)
+    .map(entry => Object.freeze({
+      agentId: entry.agentId,
+      provider: entry.provider,
+      model: entry.model,
+      autonomousDays: entry.autonomousDays ?? 0,
+      assistedDays: entry.assistedDays ?? 0,
+    }));
+  if (failedEntries.length === 0 || failedEntries.some(entry => entry.assistedDays <= 0)) {
+    throw new Error("Stability 豁免要求失败项明确包含辅助日");
+  }
+  return {
+    artifactType: "arena-stability-waiver-v1",
+    runTrack: COMPLETION_RUN_TRACK,
+    matchId: stability.matchId,
+    createdAt,
+    scope: "match-gate-only",
+    disposition: "explicit-assisted-stability-waiver",
+    probeSummaryHash: probe.probeSummaryHash,
+    stabilitySummaryHash: stability.stabilitySummaryHash,
+    stabilityPassed: false,
+    failedEntries: Object.freeze(failedEntries),
+  };
+}
+
+function writeOrVerifyStabilityWaiver(
+  target: string,
+  stability: ProviderStabilityResult,
+  probe: ProviderProbeResult,
+): StabilityWaiverRecord {
+  const expectedEntries = stabilityWaiverBody(stability, probe, stability.createdAt).failedEntries;
+  if (existsSync(target)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(target, "utf8")) as unknown;
+    } catch {
+      throw new Error("stability-waiver.json 无法读取或解析");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("stability-waiver.json 结构无效");
+    }
+    const waiver = parsed as Partial<StabilityWaiverRecord>;
+    const { waiverHash, ...body } = waiver;
+    if (waiver.artifactType !== "arena-stability-waiver-v1"
+      || waiver.runTrack !== COMPLETION_RUN_TRACK
+      || waiver.matchId !== stability.matchId
+      || waiver.scope !== "match-gate-only"
+      || waiver.disposition !== "explicit-assisted-stability-waiver"
+      || waiver.probeSummaryHash !== probe.probeSummaryHash
+      || waiver.stabilitySummaryHash !== stability.stabilitySummaryHash
+      || waiver.stabilityPassed !== false
+      || typeof waiver.createdAt !== "string"
+      || Number.isNaN(Date.parse(waiver.createdAt))
+      || integrityHash(waiver.failedEntries) !== integrityHash(expectedEntries)
+      || typeof waiverHash !== "string"
+      || integrityHash(body) !== waiverHash
+      || findPotentialSecrets(waiver).length > 0) {
+      throw new Error("stability-waiver.json 与当前 Probe/Stability 不匹配");
+    }
+    return waiver as StabilityWaiverRecord;
+  }
+  const body = stabilityWaiverBody(stability, probe, new Date().toISOString());
+  const waiver = Object.freeze({ ...body, waiverHash: integrityHash(body) });
+  if (findPotentialSecrets(waiver).length > 0) {
+    throw new Error("Stability 豁免记录包含疑似凭据，已拒绝写入");
+  }
+  atomicWriteJson(target, waiver);
+  return waiver;
 }
 
 function createConfiguredDrivers(
@@ -551,6 +663,9 @@ function configurationSummary(options: DirectCliOptions): string {
       : [`  每 Agent 总墙钟: ${options.totalWallClockMs} ms`]),
     `  单次输出上限: ${options.maxOutputTokens} tokens`,
     `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
+    ...(options.acceptAssistedStability
+      ? ["  Stability 门禁: 显式接受已结算辅助日（失败事实不改写）"]
+      : []),
     ...(options.saveRawExchanges
       ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,stability,match}`]
       : []),
@@ -608,6 +723,7 @@ function readMatchingStability(
   targets: ArtifactTargets,
   fingerprint: string,
   probe: ProviderProbeResult,
+  allowAssistedDays: boolean,
 ): ProviderStabilityResult {
   if (!existsSync(targets.stability)) {
     throw new Error("完整比赛前必须在同一输出目录完成十步 Stability Probe");
@@ -618,7 +734,7 @@ function readMatchingStability(
   } catch {
     throw new Error("stability-summary.json 无法读取或解析");
   }
-  assertMatchingProviderStability(parsed, fingerprint, probe);
+  assertMatchingProviderStability(parsed, fingerprint, probe, { allowAssistedDays });
   return parsed;
 }
 
@@ -782,7 +898,18 @@ async function main(): Promise<void> {
   const gateDrivers = createConfiguredDrivers(options);
   const fingerprint = probeFingerprint(options, gateDrivers);
   const probe = readMatchingProbe(targets, fingerprint, options.completionAssisted);
-  const stability = readMatchingStability(targets, fingerprint, probe);
+  const stability = readMatchingStability(
+    targets,
+    fingerprint,
+    probe,
+    options.acceptAssistedStability,
+  );
+  if (options.acceptAssistedStability) {
+    const waiver = writeOrVerifyStabilityWaiver(targets.stabilityWaiver, stability, probe);
+    process.stderr.write(
+      `已记录 Stability 辅助日豁免（事实仍为未通过）：${waiver.waiverHash}\n`,
+    );
+  }
   const recorder = createRecorder(options, "match");
   const drivers = createConfiguredDrivers(options, recorder);
   let output: Awaited<ReturnType<typeof runMatch>>;
