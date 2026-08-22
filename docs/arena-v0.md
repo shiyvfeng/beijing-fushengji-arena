@@ -1,8 +1,10 @@
-# Direct-only Arena 首版交付边界
+# Direct-only Arena v0：历史四模型纵向切片
 
-## 已实现的最小闭环
+> 状态：历史实现说明。本文记录 2026-08-21 已跑通的四槽 Direct-only 纵向切片，不再代表修订后的 P0 产品范围。新版 P0 是五个不同 `Provider + Model` 组合同时参赛，详见[项目进度台账](project-status.md)和[Direct Arena 运行说明](arena-direct.md)。
 
-当前首版只验收 Direct Arena：
+## 已完成的历史闭环
+
+v0 实际完成的是：
 
 ```text
 四组独立 Provider/模型配置
@@ -13,71 +15,53 @@
 → 第 1～40 天事实回放
 ```
 
-核心 `GameEnvironment` 是当前 Direct 竞技的唯一事实核心。四个 Episode 相互隔离，公共市场共享 seed，个人随机按槽位隔离。Replay 使用 `arena-schema-v2`，包含 `competitionAudit`、每个 Agent 的 Provider/model/adapter/persona、技术失败分类和退出日，以及 Day 40 才揭示的 `luckAudit`。
+核心 `GameEnvironment` 作为 Direct 比赛的事实核心。四个 Episode 相互隔离，公共市场共享 seed，个人随机按 slot 隔离。当前 `arena-schema-v2` Replay 包含 `competitionAudit`、Provider/model/adapter、技术失败分类、退出日、终局和历史版本的 `luckAudit`。
 
-## Scripted 金样
+该闭环已经由 `run-001` 证明，但它只有四个模型，不能作为新版五模型 P0 的验收结果。历史 Replay、hash、报告和 HTML 不回填、不改写。
 
-Scripted 只用于显式、确定性的离线金样：
+## 历史观众页事实范围
 
-```bash
-npm run arena:sample
-npm run build:arena
-```
+v0 观众页展示：
 
-它不会静默进入正式页面，也不能作为真实模型验收证据。正式前端没有 `sampleReplay` fallback；缺少或无法验证 Replay 时直接报错并停止展示。
-
-## 观众页事实范围
-
-观众页保留：
-
-- Provider、模型和 adapter version；
+- Provider、模型和 adapter version，以及当前实现仍保留的槽位/展示身份；
 - 当日每位 Agent 的完整动作序列与执行结果；
 - 现金、存款、债务、健康、库存与净资产；
 - 公共参考价格与公共事件；
 - Day 1～39 按公开参考价计算的暂定排名及变化；
 - 技术 DNF 类别和退出日；
 - Day 40 直接来自核心 `finalRanking` 的正式排名；
-- 个人随机事件计数、最幸运/最倒霉并列结果和 Replay hash。
+- 个人随机事件计数、历史版本的最幸运/最倒霉结果和 Replay hash。
 
-Day 1～39 的可见状态和导出不包含终局与运气数据。页面载入后会移除原始注入节点，避免尚未揭示的原始 Replay 继续留在 DOM。浏览器只回放事实，不会调用模型。
+Day 1～39 的可见状态和导出不包含终局与运气数据。页面载入后移除原始注入节点，浏览器只回放事实，不调用模型。采访、预测对账、导演高光、奖项、人物结局和模型生成解说已从 v0 正式页面移除。
 
-采访、预测对账、发言舞台、导演高光、奖项、人物结局和模型生成解说已从当前 Replay 契约、适配类型和正式页面删除。
+新版 P0 将参赛身份收缩为仅显示 `Provider + Model`；Runner 只保留随机事件原始计数，“最幸运/最倒霉”移入 P0.5 Replay Enrichment，技术 DNF 不参与候选。这些是未来目标，不是 v0 现状。
 
-## 离线与确定性构建
+## 历史离线构建
 
-从任何有效 Replay 显式重建：
+从任何当前四槽有效 Replay 显式重建：
 
 ```bash
 npm run arena:replay -- --input /absolute/path/to/replay.json
 ```
 
-构建流程会：
+当前构建器会校验 `arena-schema-v2`、四 Agent、40 天和 canonical `replayHash`，在移除 Provider Key 的环境中构建 Web，按固定顺序内联脚本、样式与本地资源，并拒绝远程运行时依赖。完整 Direct 比赛先写 JSON、Trace 和报告，再构建 HTML；HTML 失败不会删除已经完成的事实产物。
 
-1. 校验 schema、四 Agent、40 天和 canonical `replayHash`；
-2. 在移除 Provider Key 的环境中构建 Web；
-3. 按固定顺序内联脚本、样式与本地资源；
-4. 内嵌 Replay，不添加时间戳；
-5. 拒绝远程 `src`/`href`、外链脚本/样式、`fetch`、XHR、WebSocket、EventSource 与远程 CSS URL；
-6. 检查 Replay hash 与 fact hash 已进入 HTML。
+## Scripted 的保留边界
 
-完整 Direct 比赛先写 `replay.json`、Trace 和报告，再调用同一构建入口。HTML 构建失败不会删除比赛产物，也不会要求重新调用模型。
+Scripted 代码和命令仅保留为内部确定性回归工具。它不会静默进入正式页面，也不能作为真实模型、P0 产品或 MCP 验收证据。Scripted 已从产品范围、用户主流程、P0 验收和后续待办中移除。
 
-## 测试与本地验收
+正式前端没有 `sampleReplay` fallback；缺少或无法验证 Replay 时直接报错并停止展示。
 
-```bash
-npm run test:arena
-npm --prefix web run typecheck
-npm run build:arena
-```
+## 历史测试与验收
 
-离线测试覆盖：中性 Prompt/策略 hash、无身份模型观察、三类 Provider 协议、usage 与错误脱敏、Probe 四请求守卫、单 Provider DNF 隔离、报告聚合、Replay hash/排名/运气、正式前端失败关闭和 Day 1/39/40 可见性。
+v0 的离线测试曾覆盖中性 Prompt、无身份观察、三类 Provider 协议、usage 与错误脱敏、四请求 Probe 守卫、单 Provider DNF 隔离、报告聚合、Replay hash/排名/运气、正式前端失败关闭和 Day 1/39/40 可见性。
 
-`npm run build:arena` 还会生成显式 Scripted 金样并检查离线 HTML。离线验证本身不代表四个真实 Provider 在线可用；仓库已在 2026-08-21 完成一次有明确配置边界的真实验收，详见 [真实验收记录](arena-direct-acceptance-2026-08-21.md)。未来任何凭据、模型 ID、网关或预算变化仍必须先执行 `--probe-providers`，再单独授权 `--confirm-live-run`。
+2026-08-21 完成过一次有明确配置边界的真实四模型验收，详见[历史真实验收记录](arena-direct-acceptance-2026-08-21.md)。该记录不保证未来账户、模型 ID、网关或配额可用，也不满足新版五模型 P0 至少 3 场 Direct 比赛和可重复自动浏览器验收的要求。
 
-## MCP 状态
+## 后续范围
 
-仓库原 MCP Server 保持 legacy 状态，不迁移到新核心、不扩建，也不写入当前完成声明。`StrictMcpEpisodePort` 仅保留一个很小的接口占位；Match Runner 的守卫测试会拒绝把 MCP driver 当成已执行能力。
+- 新版 P0：五模型 Direct Runner、事实 Replay、五模型事实页面、完整审计字段、脱敏 Probe 摘要和可重复自动浏览器验收。
+- P0.5：独立 Replay Enrichment，通用生成使用与五组 Runner `Provider + Model` 均不重复的第六模型配置；派生叙事绝不写回 Runner。
+- P1：strict MCP。legacy MCP 保持历史入口，`StrictMcpEpisodePort` 仅为防止伪装已实现的接口占位。
 
-## 不包含的操作
-
-当前实现不包含 commit、push、部署、发布或公网托管。`dist/` 是可重复生成且被 Git 忽略的本地产物目录。
+当前交付目标仅为本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。

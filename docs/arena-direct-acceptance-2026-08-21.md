@@ -1,5 +1,7 @@
 # Direct-only Arena 真实验收记录（2026-08-21）
 
+> 历史适用范围：本文只记录当日 A/B/C/D 四槽实现与 `run-001` 的不可回填事实，不是修订后五模型同场 P0 的验收证明。新版 P0 需要五个不可重复的 `Provider + Model` 组合、五请求 Probe、至少 3 场五模型 Direct 比赛及新的验收记录；本文以下数字、hash、排名和已知限制保持原样。
+
 ## 结论
 
 本次已经跑通一条真实 Direct-only 最小闭环：四组独立配置完成四请求 Probe，随后四个模型均在完整比赛中实际收到请求，并生成可校验的 `replay.json`、`episode-traces.json`、`run-report.json` 和单文件 `replay.html`。
