@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { DirectProviderRequestError } from "../../dist/arena/agent-driver.js";
 import {
+  COMPLETION_SYSTEM_INSTRUCTION,
   COMPLETION_RUN_TRACK,
   generateDailyPlanOptions,
 } from "../../dist/arena/completion-assisted.js";
@@ -98,6 +99,13 @@ function assistedEpisodeOptions(scenario, driver, overrides = {}) {
     ...overrides,
   };
 }
+
+test("completion prompt prioritizes a valid concise selection over exhaustive search", () => {
+  assert.match(COMPLETION_SYSTEM_INSTRUCTION, /valid selection is more important/i);
+  assert.match(COMPLETION_SYSTEM_INSTRUCTION, /Do not enumerate or compare every supplied plan/i);
+  assert.match(COMPLETION_SYSTEM_INSTRUCTION, /Reserve enough output for the final answer/i);
+  assert.match(COMPLETION_SYSTEM_INSTRUCTION, /Return JSON only with exactly two fields/i);
+});
 
 test("daily-plan candidates are deterministic, bounded, deduplicated and executable", () => {
   const scenario = shortScenario(3, "candidates");

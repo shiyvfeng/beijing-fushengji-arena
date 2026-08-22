@@ -323,6 +323,9 @@ export const COMPLETION_SYSTEM_INSTRUCTION = [
   "Choose exactly one supplied daily plan ID and one supplied destination ID.",
   "Every supplied plan is executable. Do not invent actions, parameters, plan IDs or destinations.",
   "The selected plan performs up to two same-day operations, then the destination advances the game by one day.",
+  "A valid selection is more important than exhaustively searching for the optimal combination.",
+  "Do not enumerate or compare every supplied plan and destination combination; make a brief, satisfactory choice promptly.",
+  "Reserve enough output for the final answer and return it as soon as you have a valid selection.",
   "Return JSON only with exactly two fields: planId and destinationId.",
   'Example: {"planId":"P001","destinationId":7}',
 ].join("\n");
