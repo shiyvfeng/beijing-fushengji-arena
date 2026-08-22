@@ -100,8 +100,9 @@ async function verifyTechnicalDnfs(page: Page, replay: JsonObject, htmlPath: str
     const label = identity(dnfAgent);
     const exitDay = dnfAgent.finalResult.endDay;
     const category = dnfAgent.finalResult.technicalFailure?.category;
+    const firstVisibleDay = Math.max(1, exitDay);
     await openReplay(page, htmlPath);
-    await goToDay(page, exitDay, 1);
+    if (firstVisibleDay > 1) await goToDay(page, firstVisibleDay, 1);
 
     const card = page.getByRole("button", { name: `查看 ${label} 详情` });
     await expect(card).toHaveClass(/dnf/);
@@ -114,10 +115,11 @@ async function verifyTechnicalDnfs(page: Page, replay: JsonObject, htmlPath: str
     if (category && failureLabels[category]) await expect(dialog).toContainText(failureLabels[category]);
     await dialog.getByRole("button", { name: "关闭" }).click();
 
-    let currentDay = exitDay;
+    let currentDay = firstVisibleDay;
     if (exitDay < 40) {
-      await goToDay(page, exitDay + 1, currentDay);
-      currentDay++;
+      const firstPostExitDay = Math.max(1, exitDay + 1);
+      if (firstPostExitDay > currentDay) await goToDay(page, firstPostExitDay, currentDay);
+      currentDay = firstPostExitDay;
       await expect(page.getByRole("region", { name: `${label} 当日动作` })).toContainText(
         `已于第 ${exitDay} 天退出，无后续动作。`,
       );
