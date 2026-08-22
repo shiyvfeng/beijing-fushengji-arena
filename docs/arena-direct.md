@@ -1,6 +1,6 @@
 # Direct Arena 运行说明
 
-> 当前状态（2026-08-22）：待办 1 的五模型 Runner、审计/诊断边界、`arena-schema-v3` Replay 和事实观众页已实现；待办 2 的 Playwright/Chromium 自动浏览器框架已在确定性五模型 v3 Fixture 上完成双视口 14/14 验证。本文没有授权或记录真实 Provider 请求；三场真实金样及其正式浏览器报告仍待完成，因此不能称完整 P0 已验收。
+> 当前状态（2026-08-22）：待办 1 的五模型 Runner、审计/诊断边界、`arena-schema-v3` Replay 和事实观众页已实现；待办 2 的浏览器框架已完成 Fixture 验证。`run-002` 已完成真实五 Provider Probe、正式比赛与双视口 14/14 报告，工程侧建议作为新版金样候选 1/3，待产品负责人确认；另两场仍未执行，因此不能称完整 P0 已验收。
 
 ## 五模型 Direct 契约
 
@@ -206,7 +206,7 @@ git diff --check
 
 测试覆盖五 Fake Provider Probe + Match、上下文全历史、账本对账、故障隔离、轮换、诊断脱敏、v3 失败关闭、Replay 重建确定性、敏感信息扫描和上述 14 项双视口浏览器检查。Fake Provider/Fake Fetch 与浏览器 Fixture 通过不代表真实账户、模型 ID、配额、上下文窗口或 JSON mode 在线可用。
 
-后续仍需待办 3 的真实五 Provider Probe 和三场新版金样，并对每场保存正式 `browser-acceptance.json`。2026-08-21 四槽 `run-001` 只保留为历史证据，v2 会被新版浏览器验收入口拒绝。
+待办 3 的 `run-002` 已生成正式 `browser-acceptance.json`，详细事实见 [`run-002` 工程验收记录](arena-direct-acceptance-run-002.md)；仍需产品确认本场计数，并完成 `run-003`、`run-004` 及各自正式报告。2026-08-21 四槽 `run-001` 只保留为历史证据，v2 会被新版浏览器验收入口拒绝。
 
 ## Replay Enrichment 与 legacy 边界
 

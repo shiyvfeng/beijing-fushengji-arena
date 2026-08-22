@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；待办 2 已建立 Playwright/Chromium 自动浏览器框架，并以确定性五模型 v3 Fixture 在双视口通过 14/14 检查。真实五 Provider Probe、三场新版金样及其正式浏览器报告仍未执行，因此当前不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
+当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；待办 2 已建立 Playwright/Chromium 自动浏览器框架。`run-002` 已完成真实五 Provider Probe、正式比赛和双视口 14/14 报告，工程侧建议作为新版金样候选 1/3，待产品负责人确认；详细事实见 [`run-002` 工程验收记录](docs/arena-direct-acceptance-run-002.md)。`run-003`、`run-004` 尚未执行，因此当前不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 
