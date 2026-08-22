@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v1` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 已升级为 v4/v5。新版真实金样当前仍为 `0/3`：此前 `run-002` 运行均属于旧策略诊断证据，标准 `run-002` 目录尚无新策略正式比赛产物。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
+当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v2` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 为 v4/v5。新版真实金样当前仍为 `0/3`：`run-002` 最近一次 Probe 5/5，但 Stability 仅 3/5；随后针对具体修复反馈和失败响应 Token 账本升级了恢复/Adapter 契约，因此该轮门禁已降为诊断证据，尚无新策略正式比赛产物。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 
@@ -22,7 +22,7 @@
 
 P0 至少完成 3 场新版五模型 Direct 比赛。游戏内死亡、破产或技术 DNF 都可以是如实记录的比赛结果，不要求五个 Agent 都存活到第 40 天；未解释的中断不能作为通过。五个参赛组合必须各自配置，且归一化后的 `Provider + Model` 组合不能重复。slot 采用 `cyclic-v1`，由 `ARENA_SLOT_ROTATION_INDEX=0..4` 配置轮换。
 
-Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `bounded-history-v1`。每次请求包含当前完整 Observation、最近 5 天确定性摘要、最近 8 条完整动作事实和更早历史的确定性聚合；不按 Provider 差异化裁剪，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。`bounded-retry-v1` 在固定 120 秒逻辑决策预算内最多尝试 3 次，记录所有失败、重试和恢复；`context_limit`、鉴权/额度及其他不可重试错误直接技术 DNF。公共市场共享 seed，个人随机事件按 slot 隔离。
+Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `bounded-history-v1`。每次请求包含当前完整 Observation、最近 5 天确定性摘要、最近 8 条完整动作事实和更早历史的确定性聚合；不按 Provider 差异化裁剪，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。`bounded-retry-v2` 在固定 120 秒逻辑决策预算内最多尝试 3 次，并向修复尝试提供脱敏的具体错误码和被拒动作摘要；HTTP 200 但动作无效的调用仍保留 Token、revision 与延迟。所有失败、重试和恢复均进入账本；`context_limit`、鉴权/额度及其他不可重试错误直接技术 DNF。公共市场共享 seed，个人随机事件按 slot 隔离。
 
 Arena 工具链要求 Node.js 22.18 或更高版本；Playwright 浏览器验收固定使用其当前支持的 Node 22/24/26。离线测试使用 Fake Provider/Fake Fetch；Fixture 浏览器测试通过不等于真实 Provider 已在线验收。
 

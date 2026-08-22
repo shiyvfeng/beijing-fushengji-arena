@@ -14,15 +14,17 @@ import type {
   AgentDecisionOutput,
   AgentDriver,
   ArenaModelCallAudit,
+  DirectActionRepairCode,
   DirectCompetitionProfile,
   DirectModelProviderAdapter,
   DirectModelRunMetrics,
   ModelCallEvidenceLink,
   ModelRevisionAudit,
   ProviderTokenUsage,
+  SafeRejectedAction,
   SamplingAudit,
 } from "./agent-driver.js";
-import { DirectProviderRequestError } from "./agent-driver.js";
+import { DirectProviderRequestError, sanitizeRejectedAction } from "./agent-driver.js";
 import {
   buildBoundedHistoryUserContext,
   DIRECT_CONTEXT_POLICY_VERSION,
@@ -109,42 +111,74 @@ function isPositiveSafeInteger(value: unknown): value is number {
   return Number.isSafeInteger(value) && Number(value) > 0;
 }
 
+export class DirectGameActionContractError extends Error {
+  constructor(
+    readonly repairCode: DirectActionRepairCode,
+    readonly rejectedAction?: SafeRejectedAction,
+  ) {
+    super(`Direct Model 动作契约错误：${repairCode}`);
+    this.name = "DirectGameActionContractError";
+  }
+}
+
+function rejectAction(value: unknown, repairCode: DirectActionRepairCode): never {
+  throw new DirectGameActionContractError(repairCode, sanitizeRejectedAction(value));
+}
+
 /** Strictly parse the only value that may reach GameEnvironment. */
 export function parseDirectGameAction(value: unknown): GameAction {
-  if (!isRecord(value) || typeof value.type !== "string") {
-    throw new Error("Direct Model 返回值不是合法的 GameAction 对象");
-  }
+  if (!isRecord(value)) rejectAction(value, "action_must_be_object");
+  if (typeof value.type !== "string") rejectAction(value, "action_type_unknown");
   switch (value.type) {
-    case "move":
-      if (hasExactKeys(value, ["type", "locationId"]) && isNonNegativeSafeInteger(value.locationId)) {
-        return Object.freeze({ type: "move", locationId: value.locationId });
+    case "move": {
+      if (!hasExactKeys(value, ["type", "locationId"])) {
+        rejectAction(value, "action_fields_invalid");
       }
-      break;
+      if (!isNonNegativeSafeInteger(value.locationId)) {
+        rejectAction(value, "location_id_must_be_non_negative_integer");
+      }
+      return Object.freeze({ type: "move", locationId: value.locationId });
+    }
     case "buy":
-    case "sell":
-      if (hasExactKeys(value, ["type", "itemId", "quantity"])
-        && isNonNegativeSafeInteger(value.itemId)
-        && isPositiveSafeInteger(value.quantity)) {
-        return Object.freeze({ type: value.type, itemId: value.itemId, quantity: value.quantity });
+    case "sell": {
+      if (!hasExactKeys(value, ["type", "itemId", "quantity"])) {
+        rejectAction(value, "action_fields_invalid");
       }
-      break;
+      if (!isNonNegativeSafeInteger(value.itemId)) {
+        rejectAction(value, "item_id_must_be_non_negative_integer");
+      }
+      if (!isPositiveSafeInteger(value.quantity)) {
+        rejectAction(value, "quantity_must_be_positive_integer");
+      }
+      return Object.freeze({ type: value.type, itemId: value.itemId, quantity: value.quantity });
+    }
     case "deposit":
     case "withdraw":
-    case "repay_debt":
-      if (hasExactKeys(value, ["type", "amount"]) && isPositiveSafeInteger(value.amount)) {
-        return Object.freeze({ type: value.type, amount: value.amount });
+    case "repay_debt": {
+      if (!hasExactKeys(value, ["type", "amount"])) {
+        rejectAction(value, "action_fields_invalid");
       }
-      break;
-    case "heal":
-      if (hasExactKeys(value, ["type", "points"]) && isPositiveSafeInteger(value.points)) {
-        return Object.freeze({ type: "heal", points: value.points });
+      if (!isPositiveSafeInteger(value.amount)) {
+        rejectAction(value, "amount_must_be_positive_integer");
       }
-      break;
-    case "expand_capacity":
-      if (hasExactKeys(value, ["type"])) return Object.freeze({ type: "expand_capacity" });
-      break;
+      return Object.freeze({ type: value.type, amount: value.amount });
+    }
+    case "heal": {
+      if (!hasExactKeys(value, ["type", "points"])) {
+        rejectAction(value, "action_fields_invalid");
+      }
+      if (!isPositiveSafeInteger(value.points)) {
+        rejectAction(value, "points_must_be_positive_integer");
+      }
+      return Object.freeze({ type: "heal", points: value.points });
+    }
+    case "expand_capacity": {
+      if (!hasExactKeys(value, ["type"])) rejectAction(value, "action_fields_invalid");
+      return Object.freeze({ type: "expand_capacity" });
+    }
+    default:
+      rejectAction(value, "action_type_unknown");
   }
-  throw new Error("Direct Model 返回的动作不符合严格 GameAction 契约");
 }
 
 function defaultSamplingAudit(provider: DirectModelProviderAdapter): SamplingAudit {
@@ -269,13 +303,19 @@ export class DirectModelDriver implements AgentDriver {
       let action: GameAction;
       try {
         action = parseDirectGameAction(result.action);
-      } catch {
+      } catch (error: unknown) {
+        const contractError = error instanceof DirectGameActionContractError ? error : undefined;
         throw new DirectProviderRequestError(
           this.provider.providerId,
           "invalid_action",
           `${this.provider.providerId} 返回的动作不符合 Arena 契约`,
           undefined,
-          { responseModelRevision: result.responseModelRevision },
+          {
+            responseModelRevision: result.responseModelRevision,
+            tokenUsage: result.usage,
+            actionRepairCode: contractError?.repairCode ?? "action_fields_invalid",
+            rejectedAction: contractError?.rejectedAction ?? result.action,
+          },
         );
       }
       if (!observation.allowedActions.includes(action.type)) {
@@ -284,7 +324,12 @@ export class DirectModelDriver implements AgentDriver {
           "invalid_action",
           `${this.provider.providerId} 返回了当前不可用的 Arena 动作`,
           undefined,
-          { responseModelRevision: result.responseModelRevision },
+          {
+            responseModelRevision: result.responseModelRevision,
+            tokenUsage: result.usage,
+            actionRepairCode: "action_not_allowed",
+            rejectedAction: action,
+          },
         );
       }
       this.finishCall(call, "succeeded", result.usage, result.responseModelRevision);
@@ -294,7 +339,7 @@ export class DirectModelDriver implements AgentDriver {
         throw input.signal.reason instanceof Error ? input.signal.reason : new Error("Direct Model 决策已取消");
       }
       if (error instanceof DirectProviderRequestError) {
-        this.finishCall(call, "failed", undefined, error.responseModelRevision, {
+        this.finishCall(call, "failed", error.tokenUsage, error.responseModelRevision, {
           category: error.code,
           domain: error.domain,
           countsTowardModelFailure: error.countsTowardModelFailure,

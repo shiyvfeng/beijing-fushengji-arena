@@ -158,6 +158,47 @@ test("token usage normalization derives totals and rejects partial or inconsiste
   assert.equal(normalizeProviderTokenUsage(-1, 4), undefined);
 });
 
+test("Qwen HTTP 200 invalid action retains usage, revision and specific safe repair facts", async () => {
+  const provider = createDirectProviderAdapter(normalizeAgentProviderConfig({
+    provider: "qwen",
+    baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    apiKey: TEST_API_KEY,
+    model: "qwen-test",
+    maxOutputTokens: 256,
+    reasoningEffort: "low",
+  }), {
+    fetchImpl: async () => new Response(JSON.stringify({
+      model: "qwen-revision-17",
+      usage: { prompt_tokens: 2241, completion_tokens: 1199, total_tokens: 3440 },
+      choices: [{
+        finish_reason: "stop",
+        message: {
+          role: "assistant",
+          content: JSON.stringify({
+            type: "buy",
+            itemId: 6,
+            quantity: 0,
+          }),
+        },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } }),
+  });
+
+  await assert.rejects(provider.requestDecision(createDecisionInput()), error => {
+    assert.equal(error.code, "invalid_action");
+    assert.deepEqual(error.tokenUsage, {
+      inputTokens: 2241,
+      outputTokens: 1199,
+      totalTokens: 3440,
+    });
+    assert.equal(error.responseModelRevision, "qwen-revision-17");
+    assert.equal(error.actionRepairCode, "quantity_must_be_positive_integer");
+    assert.deepEqual(error.rejectedAction, { type: "buy", itemId: 6, quantity: 0 });
+    assert.equal(findPotentialSecrets(error).length, 0);
+    return true;
+  });
+});
+
 test("OpenAI-compatible providers use independent base URLs, keys and models", async t => {
   const cases = [
     {
@@ -215,7 +256,7 @@ test("OpenAI-compatible providers use independent base URLs, keys and models", a
       assert.deepEqual(result.usage, { inputTokens: 21, outputTokens: 4, totalTokens: 25 });
       assert.equal(provider.providerId, item.provider);
       assert.equal(provider.modelId, item.model);
-      assert.equal(provider.adapterVersion, "openai-chat-completions-v4");
+      assert.equal(provider.adapterVersion, "openai-chat-completions-v5");
       assert.equal(provider.thinkingMode, item.expectedThinkingMode);
       assert.equal(provider.reasoningEffort, item.reasoningEffort);
       assert.equal(capturedUrl, item.expectedUrl);
@@ -291,7 +332,7 @@ test("Claude uses the native Anthropic Messages protocol", async () => {
   });
   assert.deepEqual(result.usage, { inputTokens: 18, outputTokens: 6, totalTokens: 24 });
   assert.equal(provider.providerId, "anthropic");
-  assert.equal(provider.adapterVersion, "anthropic-messages-v3");
+  assert.equal(provider.adapterVersion, "anthropic-messages-v4");
   assert.equal(capturedUrl, "https://api.anthropic.com/v1/messages");
   const headers = new Headers(capturedInit.headers);
   assert.equal(headers.get("x-api-key"), TEST_API_KEY);
@@ -459,5 +500,5 @@ test("OpenAI Responses accepts an explicit v1 base URL without duplicating the p
   assert.equal(capturedUrl, "https://api.openai.com/v1/responses");
   assert.deepEqual(capturedBody.reasoning, { effort: "max" });
   assert.equal(provider.providerId, "openai");
-  assert.equal(provider.adapterVersion, "openai-responses-v3");
+  assert.equal(provider.adapterVersion, "openai-responses-v4");
 });

@@ -8,7 +8,7 @@ import type {
 export const DIRECT_DECISION_POLICY_ID = "neutral-v1" as const;
 export const DIRECT_MODEL_OBSERVATION_VERSION = "identity-free-v1" as const;
 export const DIRECT_CONTEXT_POLICY_VERSION = "bounded-history-v1" as const;
-export const DIRECT_RECOVERY_POLICY_VERSION = "bounded-retry-v1" as const;
+export const DIRECT_RECOVERY_POLICY_VERSION = "bounded-retry-v2" as const;
 export const DIRECT_SAMPLING_POLICY_VERSION = "provider-explicit-effort-audited-v2" as const;
 export const DIRECT_RECENT_DAY_LIMIT = 5;
 export const DIRECT_RECENT_ACTION_LIMIT = 8;
@@ -44,7 +44,7 @@ export const DIRECT_SYSTEM_INSTRUCTION = [
   "You are playing one isolated episode of Beijing Floating Life Arena.",
   DIRECT_DECISION_POLICY_TEXT,
   "Choose exactly one action allowed by the current observation without inventing state.",
-  "If retryFeedback is present, the previous attempt was rejected; correct it and return one concise action immediately.",
+  "If retryFeedback is present, inspect actionErrorCode and rejectedAction, do not repeat known-invalid values, and return one corrected feasible action immediately.",
   "You must reach the final day within the action budget; only move advances the day and applies interest and events.",
   "After the final day, inventory is liquidated once at publicReferencePrice times each item's liquidityDiscount; final net worth is cash plus bank minus debt after liquidation.",
   "If currentLocation is null, move first. Never move to the current location, and treat localPrice 0 as unavailable.",

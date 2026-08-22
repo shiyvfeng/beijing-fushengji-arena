@@ -168,7 +168,7 @@ test("five Direct models use bounded-history-v1 and produce one-to-one request e
   assert.equal(output.replay.competitionAudit.decisionPolicyId, DIRECT_DECISION_POLICY_ID);
   assert.equal(output.replay.competitionAudit.decisionPolicyHash, DIRECT_DECISION_POLICY_HASH);
   assert.equal(output.replay.competitionAudit.contextPolicyVersion, DIRECT_CONTEXT_POLICY_VERSION);
-  assert.equal(output.replay.competitionAudit.recoveryPolicyVersion, "bounded-retry-v1");
+  assert.equal(output.replay.competitionAudit.recoveryPolicyVersion, "bounded-retry-v2");
   assert.equal(output.replay.competitionAudit.attemptTimeoutMs, 500);
   assert.equal(output.replay.competitionAudit.maxAttemptsPerDecision, 3);
   assert.equal(output.replay.competitionAudit.automaticRetries, 2);
@@ -190,7 +190,7 @@ test("five Direct models use bounded-history-v1 and produce one-to-one request e
     assert.equal(sixthContext.recentActions.length, 5);
     assert.equal(sixthContext.olderHistorySummary.successfulActions, 0);
     assert.equal(sixthContext.contextPolicyVersion, "bounded-history-v1");
-    assert.equal(sixthContext.recoveryPolicyVersion, "bounded-retry-v1");
+    assert.equal(sixthContext.recoveryPolicyVersion, "bounded-retry-v2");
     const finalContext = JSON.parse(entries.at(-1).userContext);
     assert.ok(finalContext.recentActions.length <= 8);
     assert.ok(finalContext.recentDaySummaries.length <= 5);
@@ -278,7 +278,7 @@ async function runRetryEpisode(matchId, driver, decisionTimeoutMs = 1_000) {
   });
 }
 
-test("bounded-retry-v1 repairs an invalid action and records the recovered decision", async () => {
+test("bounded-retry-v2 repairs an invalid action and records the recovered decision", async () => {
   let requestCount = 0;
   const capturedContexts = [];
   const output = await runRetryEpisode("retry-invalid-action", retryTestDriver(async input => {
@@ -299,10 +299,59 @@ test("bounded-retry-v1 repairs an invalid action and records the recovered decis
   assert.equal(output.report.requestMetrics.calls[0].actionEventId !== null, true);
   assert.equal(output.report.requestMetrics.calls[1].actionEventId !== null, true);
   assert.equal(capturedContexts[1].retryFeedback.category, "invalid_action");
+  assert.equal(capturedContexts[1].retryFeedback.actionErrorCode, "invalid_location");
   assert.deepEqual(capturedContexts[1].retryFeedback.rejectedAction, { type: "move", locationId: 999 });
 });
 
-test("bounded-retry-v1 retries one timed-out attempt inside the same logical deadline", async () => {
+test("bounded-retry-v2 retains failed usage and sends specific sanitized repair feedback", async () => {
+  let requestCount = 0;
+  const capturedContexts = [];
+  const secret = "credential-fixture-value-123456789";
+  const output = await runRetryEpisode("retry-contract-feedback", retryTestDriver(async input => {
+    requestCount++;
+    capturedContexts.push(JSON.parse(input.userContext));
+    if (requestCount === 1) {
+      throw new DirectProviderRequestError(
+        "retry-provider",
+        "invalid_action",
+        "safe contract failure",
+        undefined,
+        {
+          responseModelRevision: "retry-revision-7",
+          tokenUsage: { inputTokens: 21, outputTokens: 4, totalTokens: 25 },
+          actionRepairCode: "quantity_must_be_positive_integer",
+          rejectedAction: { type: "buy", itemId: 6, quantity: 0, apiKey: secret },
+        },
+      );
+    }
+    return {
+      action: { type: "move", locationId: 0 },
+      usage: { inputTokens: 3, outputTokens: 2, totalTokens: 5 },
+    };
+  }));
+
+  assert.equal(output.report.validActionCount, 1);
+  assert.equal(output.report.recoveredDecisionCount, 1);
+  assert.equal(output.report.requestMetrics.totalTokens, 30);
+  assert.equal(output.report.requestMetrics.usageReportedRequestCount, 2);
+  const failedCall = output.report.requestMetrics.calls[0];
+  assert.equal(failedCall.status, "failed");
+  assert.deepEqual(failedCall.tokenUsage, { inputTokens: 21, outputTokens: 4, totalTokens: 25 });
+  assert.equal(failedCall.usageMissing, false);
+  assert.equal(typeof failedCall.latencyMs, "number");
+  assert.ok(failedCall.latencyMs >= 0);
+  assert.equal(failedCall.modelRevision.response, "retry-revision-7");
+  assert.equal(failedCall.retryReason, "invalid_action");
+  assert.deepEqual(capturedContexts[1].retryFeedback, {
+    category: "invalid_action",
+    actionErrorCode: "quantity_must_be_positive_integer",
+    rejectedAction: { type: "buy", itemId: 6, quantity: 0 },
+  });
+  assert.equal(JSON.stringify(capturedContexts).includes(secret), false);
+  assert.equal(findPotentialSecrets(output.report.requestMetrics).length, 0);
+});
+
+test("bounded-retry-v2 retries one timed-out attempt inside the same logical deadline", async () => {
   let requestCount = 0;
   const startedAt = performance.now();
   const output = await runRetryEpisode("retry-timeout", retryTestDriver(input => {
@@ -326,7 +375,7 @@ test("bounded-retry-v1 retries one timed-out attempt inside the same logical dea
   assert.ok(elapsedMs >= 90 && elapsedMs < 500, `unexpected elapsed ${elapsedMs}`);
 });
 
-test("bounded-retry-v1 exhausts repair attempts but never retries context_limit", async () => {
+test("bounded-retry-v2 exhausts repair attempts but never retries context_limit", async () => {
   const exhausted = await runRetryEpisode("retry-exhausted", retryTestDriver(async () => {
     throw new DirectProviderRequestError(
       "retry-provider",

@@ -2,7 +2,7 @@
 
 > 修订说明（2026-08-22）：本版重新冻结 P0 为五个不同 `Provider + model` 的五模型同场 Direct Benchmark。P0 Runner 只生成事实性 Replay、Trace 与 Run Report；程序化高光、采访、奖项、结局和娱乐解说统一移入 P0.5 的独立 Replay Enrichment。strict MCP 移入 P1；Scripted 不再属于产品范围或验收，只保留为内部确定性回归工具。文件名暂保留 `v2`，正文版本以 v2.2 为准。
 
-> 完成率修订（2026-08-22）：真实诊断表明最高 reasoning effort、全历史和零恢复无法在可接受时间内稳定完成比赛。P0 现冻结为五家最低非关闭 `low`、`bounded-history-v1`、固定逻辑预算内的 `bounded-retry-v1`，并在正式比赛前增加五家各 10 个有效动作的 Stability 门禁。策略改变后旧真实样本只作诊断，三场计数重新开始。
+> 完成率修订（2026-08-22）：真实诊断表明最高 reasoning effort、全历史和零恢复无法在可接受时间内稳定完成比赛。P0 现冻结为五家最低非关闭 `low`、`bounded-history-v1`、固定逻辑预算内的 `bounded-retry-v2`，并在正式比赛前增加五家各 10 个有效动作的 Stability 门禁。v2 向修复尝试提供脱敏具体错误码，并保留 HTTP 200 无效动作响应的 Token/revision/延迟；策略改变后旧真实样本只作诊断，三场计数重新开始。
 
 已确认且后续默认不再反复讨论的产品决策：
 
@@ -262,7 +262,7 @@ Replay 可以同时展示净资产数值和正式名次，不能用一个看似�
 每场 Match 固定：
 
 - 每个 Agent 的最大决策调用数、最大工具动作数、单次输出上限和总墙钟上限；
-- Provider Probe 每家恰好一次且零重试；Stability 与正式决策统一使用 `bounded-retry-v1`，重试不得延长单个逻辑决策或总墙钟；
+- Provider Probe 每家恰好一次且零重试；Stability 与正式决策统一使用 `bounded-retry-v2`，重试不得延长单个逻辑决策或总墙钟；
 - 超出上下文下限的模型不得临时获得删减版 Observation；
 - 传输失败且未产生模型结果时不扣工具预算，模型生成的无效 Action 计入可靠性指标；
 - 并发只用于缩短后台运行时间，不能通过共享会话、共享缓存或调用顺序让 Agent 相互影响。
@@ -1864,7 +1864,7 @@ P0.5 的程序化加工、通用第六模型、选手原模型采访或解说失
 | Stability Probe | Probe 通过后，五家并行且各自顺序完成 10 个有效动作；保存请求、重试、恢复、Token、延迟和故障摘要 |
 | 结构化日志 | action、before、after、diff、随机流来源、完整上下文 hash、模型调用与证据 ID |
 | 上下文契约 | `bounded-history-v1`：当前完整无身份 Observation + 最近 5 天摘要 + 最近 8 条完整动作 + 更早历史确定性聚合；禁止差异化裁剪和跨局记录 |
-| 恢复契约 | `bounded-retry-v1`：固定逻辑预算内最多 3 次尝试，区分修复/瞬态/不可重试故障，所有失败与恢复可审计 |
+| 恢复契约 | `bounded-retry-v2`：固定逻辑预算内最多 3 次尝试，区分修复/瞬态/不可重试故障，修复反馈携带安全具体原因，所有失败与恢复可审计 |
 | 运行审计 | model revision、sampling、总墙钟、请求-action/retry/termination 关联、故障归属、输入/输出 Token 和延迟；不估算金额 |
 | Replay | 生成、校验并 hash 只含结构化事实的 `replay.json`，不混入叙事字段 |
 | 单一观众看板 | 第 1～40 天日期游标、五模型状态、完整动作、排名、曲线、事件、DNF 与核心终局 |
@@ -1955,7 +1955,7 @@ Agent 间直接交互和共享市场不得进入 P0。公开发布、公开榜�
 1. 创建五个隔离 episode；
 2. 实现受控并发、统一决策/动作/输出预算、单次超时、总墙钟和错误隔离；
 3. 实现 `bounded-history-v1` 有界上下文、确定性聚合和覆盖实际完整发送内容的上下文 hash；
-4. 实现固定逻辑预算内的 `bounded-retry-v1`，记录错误、重试和恢复；
+4. 实现固定逻辑预算内的 `bounded-retry-v2`，记录错误、重试和恢复，并保留 HTTP 200 无效动作响应的 Token/revision/延迟；
 5. 记录 model revision、sampling parameters、输入/输出 Token 和延迟；
 6. 建立每个请求与 action、retry 或 termination 的逐条关联；
 7. 区分平台、Provider、模型、协议和 Runner 故障归属；

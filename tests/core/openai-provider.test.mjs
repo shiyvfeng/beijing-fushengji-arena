@@ -120,7 +120,7 @@ test("OpenAI provider sends a strict Responses request and returns a minimal Gam
   assert.equal("episodeId" in userContext.observation, false);
   assert.equal("observationHash" in userContext.observation, false);
   assert.equal(userContext.contextPolicyVersion, "bounded-history-v1");
-  assert.equal(userContext.recoveryPolicyVersion, "bounded-retry-v1");
+  assert.equal(userContext.recoveryPolicyVersion, "bounded-retry-v2");
   assert.equal(userContext.olderHistorySummary.totalAttempts, 0);
   assert.deepEqual(
     Object.keys(userContext.recentActions[0]).sort(),
@@ -280,7 +280,12 @@ test("OpenAI provider rejects extra, irrelevant and unsafe action fields", async
       });
       await assert.rejects(
         provider.requestDecision(createDecisionInput()),
-        error => error.code === "invalid_action",
+        error => {
+          assert.equal(error.code, "invalid_action");
+          assert.deepEqual(error.tokenUsage, { inputTokens: 31, outputTokens: 7, totalTokens: 38 });
+          assert.equal(error.rejectedAction.type === "unknown" || typeof error.rejectedAction.type === "string", true);
+          return true;
+        },
       );
     });
   }

@@ -13,6 +13,7 @@ import {
   extractResponseModelRevision,
   normalizeProviderTokenUsage,
   parseStrictJsonAction,
+  type ProviderResponseFacts,
   requireProviderValue,
   resolveProviderEndpoint,
   validateMaxOutputTokens,
@@ -48,16 +49,15 @@ function validateThinkingMode(value: ProviderThinkingMode | undefined): Provider
 function collectMessageText(
   payload: Record<string, unknown>,
   providerId: string,
-  responseModelRevision?: string,
+  responseFacts: ProviderResponseFacts,
 ): string {
-  const revision = { responseModelRevision };
   if (!Array.isArray(payload.choices) || payload.choices.length < 1) {
     throw new DirectProviderRequestError(
       providerId,
       "invalid_response",
       `${providerId} Chat Completions 返回结构不合法`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   const choice = payload.choices[0];
@@ -67,7 +67,7 @@ function collectMessageText(
       "invalid_response",
       `${providerId} Chat Completions 返回结构不合法`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (choice.finish_reason === "length") {
@@ -76,7 +76,7 @@ function collectMessageText(
       "incomplete",
       `${providerId} Chat Completions 未完成 Arena 动作生成`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (choice.finish_reason === "content_filter" || choice.finish_reason === "refusal") {
@@ -85,7 +85,7 @@ function collectMessageText(
       "refusal",
       `${providerId} Chat Completions 拒绝生成 Arena 动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (!isProviderRecord(choice.message)) {
@@ -94,7 +94,7 @@ function collectMessageText(
       "invalid_response",
       `${providerId} Chat Completions 未返回文本动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (typeof choice.message.refusal === "string" && choice.message.refusal.trim()) {
@@ -103,7 +103,7 @@ function collectMessageText(
       "refusal",
       `${providerId} Chat Completions 拒绝生成 Arena 动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (typeof choice.message.content !== "string") {
@@ -112,7 +112,7 @@ function collectMessageText(
       "invalid_response",
       `${providerId} Chat Completions 未返回文本动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   return choice.message.content;
@@ -120,7 +120,7 @@ function collectMessageText(
 
 export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter {
   readonly providerId: string;
-  readonly adapterVersion = "openai-chat-completions-v4";
+  readonly adapterVersion = "openai-chat-completions-v5";
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly thinkingMode: ProviderThinkingMode;
@@ -265,12 +265,6 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       );
     }
     const responseModelRevision = extractResponseModelRevision(payload);
-    const action = parseStrictJsonAction(
-      collectMessageText(payload, this.providerId, responseModelRevision),
-      input,
-      this.providerId,
-      responseModelRevision,
-    );
     if (payload.usage !== undefined && !isProviderRecord(payload.usage)) {
       throw new DirectProviderRequestError(
         this.providerId,
@@ -296,6 +290,16 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
         { responseModelRevision },
       );
     }
+    const responseFacts = Object.freeze({
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+      ...(usage ? { tokenUsage: usage } : {}),
+    });
+    const action = parseStrictJsonAction(
+      collectMessageText(payload, this.providerId, responseFacts),
+      input,
+      this.providerId,
+      responseFacts,
+    );
     return Object.freeze({
       action,
       ...(usage ? { usage } : {}),

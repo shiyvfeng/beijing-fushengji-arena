@@ -161,7 +161,7 @@ export function coreReplayFixture(): any {
       decisionPolicyHash: policyHash,
       modelObservationVersion: "identity-free-v1",
       contextPolicyVersion: "bounded-history-v1",
-      recoveryPolicyVersion: "bounded-retry-v1",
+      recoveryPolicyVersion: "bounded-retry-v2",
       samplingPolicyVersion: "provider-explicit-effort-audited-v2",
       publicRandomization: "shared-seed",
       personalRandomization: "slot-isolated",

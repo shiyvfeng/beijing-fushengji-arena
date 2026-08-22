@@ -24,7 +24,7 @@ test("adapter exposes five Provider + Model identities, full actions and classif
   assert.equal(replay.competitionAudit?.decisionPolicyId, "neutral-v1");
   assert.equal(replay.competitionAudit?.personalRandomization, "slot-isolated");
   assert.equal(replay.competitionAudit?.contextPolicyVersion, "bounded-history-v1");
-  assert.equal(replay.competitionAudit?.recoveryPolicyVersion, "bounded-retry-v1");
+  assert.equal(replay.competitionAudit?.recoveryPolicyVersion, "bounded-retry-v2");
   assert.equal(replay.days[0].actions.filter(action => action.agentId === "competitor-1").length, 2);
   assert.deepEqual(
     replay.days[0].actions.filter(action => action.agentId === "competitor-1").map(action => action.result),

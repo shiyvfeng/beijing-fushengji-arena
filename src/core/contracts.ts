@@ -352,7 +352,7 @@ export interface CompetitionAudit {
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
   readonly contextPolicyVersion: "bounded-history-v1";
-  readonly recoveryPolicyVersion: "bounded-retry-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v2";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly publicRandomization: "shared-seed";
   readonly personalRandomization: "slot-isolated";

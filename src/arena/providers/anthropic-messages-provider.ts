@@ -10,6 +10,7 @@ import {
   extractResponseModelRevision,
   normalizeProviderTokenUsage,
   parseStrictJsonAction,
+  type ProviderResponseFacts,
   requireProviderValue,
   resolveProviderEndpoint,
   validateMaxOutputTokens,
@@ -34,16 +35,15 @@ export interface AnthropicMessagesProviderOptions {
 function collectAnthropicText(
   payload: Record<string, unknown>,
   providerId: string,
-  responseModelRevision?: string,
+  responseFacts: ProviderResponseFacts,
 ): string {
-  const revision = { responseModelRevision };
   if (payload.type !== "message" || !Array.isArray(payload.content)) {
     throw new DirectProviderRequestError(
       providerId,
       "invalid_response",
       `${providerId} Messages API 返回结构不合法`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (payload.stop_reason === "max_tokens") {
@@ -52,7 +52,7 @@ function collectAnthropicText(
       "incomplete",
       `${providerId} Messages API 未完成 Arena 动作生成`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   if (payload.stop_reason === "refusal") {
@@ -61,7 +61,7 @@ function collectAnthropicText(
       "refusal",
       `${providerId} Messages API 拒绝生成 Arena 动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   const chunks: string[] = [];
@@ -77,7 +77,7 @@ function collectAnthropicText(
       "invalid_response",
       `${providerId} Messages API 未返回文本动作`,
       undefined,
-      revision,
+      responseFacts,
     );
   }
   return chunks.join("");
@@ -85,7 +85,7 @@ function collectAnthropicText(
 
 export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
   readonly providerId: string;
-  readonly adapterVersion = "anthropic-messages-v3";
+  readonly adapterVersion = "anthropic-messages-v4";
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly reasoningEffort: ProviderReasoningEffort;
@@ -214,12 +214,6 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       );
     }
     const responseModelRevision = extractResponseModelRevision(payload);
-    const action = parseStrictJsonAction(
-      collectAnthropicText(payload, this.providerId, responseModelRevision),
-      input,
-      this.providerId,
-      responseModelRevision,
-    );
     if (payload.usage !== undefined && !isProviderRecord(payload.usage)) {
       throw new DirectProviderRequestError(
         this.providerId,
@@ -244,6 +238,16 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
         { responseModelRevision },
       );
     }
+    const responseFacts = Object.freeze({
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+      ...(usage ? { tokenUsage: usage } : {}),
+    });
+    const action = parseStrictJsonAction(
+      collectAnthropicText(payload, this.providerId, responseFacts),
+      input,
+      this.providerId,
+      responseFacts,
+    );
     return Object.freeze({
       action,
       ...(usage ? { usage } : {}),

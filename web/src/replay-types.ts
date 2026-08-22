@@ -113,7 +113,7 @@ export interface CompetitionAudit {
   decisionPolicyHash: string;
   modelObservationVersion: string;
   contextPolicyVersion: "bounded-history-v1";
-  recoveryPolicyVersion: "bounded-retry-v1";
+  recoveryPolicyVersion: "bounded-retry-v2";
   samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   publicRandomization: "shared-seed";
   personalRandomization: "slot-isolated";

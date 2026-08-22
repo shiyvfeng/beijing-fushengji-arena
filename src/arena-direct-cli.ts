@@ -505,7 +505,7 @@ function configurationSummary(options: DirectCliOptions): string {
       ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,stability,match}`]
       : []),
     "  实时进度: arena-live-progress-v1 JSONL（仅脱敏事实字段）",
-    "  恢复策略: bounded-retry-v1（每决策最多 3 次；修复重试 2 次；瞬态重试 1 次）",
+    "  恢复策略: bounded-retry-v2（每决策最多 3 次；修复重试 2 次；瞬态重试 1 次；携带脱敏具体反馈）",
   ].join("\n");
 }
 

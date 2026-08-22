@@ -2,7 +2,7 @@ import type { GameAction } from "../../core/contracts.js";
 import { findPotentialSecrets } from "../../core/secret-scan.js";
 import type { DirectModelDecisionInput, ProviderTokenUsage } from "../agent-driver.js";
 import { DirectProviderRequestError } from "../agent-driver.js";
-import { parseDirectGameAction } from "../direct-driver.js";
+import { DirectGameActionContractError, parseDirectGameAction } from "../direct-driver.js";
 import {
   buildBoundedHistoryUserContext,
   DIRECT_SYSTEM_INSTRUCTION,
@@ -124,11 +124,16 @@ export function normalizeProviderTokenUsage(
   return Object.freeze({ inputTokens, outputTokens, totalTokens });
 }
 
+export interface ProviderResponseFacts {
+  readonly responseModelRevision?: string;
+  readonly tokenUsage?: ProviderTokenUsage;
+}
+
 export function parseStrictJsonAction(
   text: string,
   input: DirectModelDecisionInput,
   providerId: string,
-  responseModelRevision?: string,
+  responseFacts: ProviderResponseFacts = {},
 ): GameAction {
   let candidate: unknown;
   try {
@@ -139,20 +144,25 @@ export function parseStrictJsonAction(
       "invalid_response",
       `${providerId} 返回的 Arena 动作无法解析`,
       undefined,
-      { responseModelRevision },
+      { ...responseFacts, actionRepairCode: "invalid_json" },
     );
   }
 
   let action: GameAction;
   try {
     action = parseDirectGameAction(candidate);
-  } catch {
+  } catch (error: unknown) {
+    const contractError = error instanceof DirectGameActionContractError ? error : undefined;
     throw new DirectProviderRequestError(
       providerId,
       "invalid_action",
       `${providerId} 返回的动作不符合 Arena 契约`,
       undefined,
-      { responseModelRevision },
+      {
+        ...responseFacts,
+        actionRepairCode: contractError?.repairCode ?? "action_fields_invalid",
+        rejectedAction: contractError?.rejectedAction ?? candidate,
+      },
     );
   }
   if (!input.observation.allowedActions.includes(action.type)) {
@@ -161,7 +171,11 @@ export function parseStrictJsonAction(
       "invalid_action",
       `${providerId} 返回了当前不可用的 Arena 动作`,
       undefined,
-      { responseModelRevision },
+      {
+        ...responseFacts,
+        actionRepairCode: "action_not_allowed",
+        rejectedAction: action,
+      },
     );
   }
   return action;

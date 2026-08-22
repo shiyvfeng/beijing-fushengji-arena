@@ -146,7 +146,7 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
   const audit = requireObject(value, "Replay.competitionAudit");
   if (audit.fairnessClass !== "controlled-exhibition"
     || audit.contextPolicyVersion !== "bounded-history-v1"
-    || audit.recoveryPolicyVersion !== "bounded-retry-v1"
+    || audit.recoveryPolicyVersion !== "bounded-retry-v2"
     || audit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
     || audit.publicRandomization !== "shared-seed"
     || audit.personalRandomization !== "slot-isolated"
@@ -194,7 +194,7 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
     decisionPolicyHash: requireSha256(audit.decisionPolicyHash, "competitionAudit.decisionPolicyHash"),
     modelObservationVersion: requireString(audit.modelObservationVersion, "competitionAudit.modelObservationVersion"),
     contextPolicyVersion: "bounded-history-v1",
-    recoveryPolicyVersion: "bounded-retry-v1",
+    recoveryPolicyVersion: "bounded-retry-v2",
     samplingPolicyVersion: "provider-explicit-effort-audited-v2",
     publicRandomization: "shared-seed",
     personalRandomization: "slot-isolated",

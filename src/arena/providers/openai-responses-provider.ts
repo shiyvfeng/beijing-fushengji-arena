@@ -1,9 +1,12 @@
 import type { GameAction, ProviderReasoningEffort } from "../../core/contracts.js";
 import type {
+  DirectActionRepairCode,
   DirectModelDecisionInput,
   DirectModelProviderAdapter,
   SamplingAudit,
 } from "../agent-driver.js";
+import { sanitizeRejectedAction } from "../agent-driver.js";
+import { DirectGameActionContractError } from "../direct-driver.js";
 import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
@@ -12,6 +15,7 @@ import {
   DirectProviderRequestError,
   extractResponseModelRevision,
   normalizeProviderTokenUsage,
+  type ProviderResponseFacts,
 } from "./provider-utils.js";
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -142,51 +146,72 @@ function unusedFieldsAreNull(
   return RESPONSE_FIELDS.every(field => used.has(field) || value[field] === null);
 }
 
-function parseActionEnvelope(value: unknown): GameAction | null {
-  if (!isRecord(value) || !hasExactFields(value) || typeof value.type !== "string") {
-    return null;
-  }
+function rejectEnvelope(
+  value: unknown,
+  repairCode: DirectActionRepairCode,
+): never {
+  throw new DirectGameActionContractError(repairCode, sanitizeRejectedAction(value));
+}
+
+function parseActionEnvelope(value: unknown): GameAction {
+  if (!isRecord(value)) rejectEnvelope(value, "action_must_be_object");
+  if (!hasExactFields(value)) rejectEnvelope(value, "action_fields_invalid");
+  if (typeof value.type !== "string") rejectEnvelope(value, "action_type_unknown");
   switch (value.type) {
-    case "move":
-      return isNonNegativeSafeInteger(value.locationId)
-        && unusedFieldsAreNull(value, ["locationId"])
-        ? Object.freeze({ type: "move", locationId: value.locationId })
-        : null;
+    case "move": {
+      if (!isNonNegativeSafeInteger(value.locationId)) {
+        rejectEnvelope(value, "location_id_must_be_non_negative_integer");
+      }
+      if (!unusedFieldsAreNull(value, ["locationId"])) {
+        rejectEnvelope(value, "action_fields_invalid");
+      }
+      return Object.freeze({ type: "move", locationId: value.locationId });
+    }
     case "buy":
-    case "sell":
-      return isNonNegativeSafeInteger(value.itemId)
-        && isPositiveSafeInteger(value.quantity)
-        && unusedFieldsAreNull(value, ["itemId", "quantity"])
-        ? Object.freeze({
-          type: value.type,
-          itemId: value.itemId,
-          quantity: value.quantity,
-        })
-        : null;
+    case "sell": {
+      if (!isNonNegativeSafeInteger(value.itemId)) {
+        rejectEnvelope(value, "item_id_must_be_non_negative_integer");
+      }
+      if (!isPositiveSafeInteger(value.quantity)) {
+        rejectEnvelope(value, "quantity_must_be_positive_integer");
+      }
+      if (!unusedFieldsAreNull(value, ["itemId", "quantity"])) {
+        rejectEnvelope(value, "action_fields_invalid");
+      }
+      return Object.freeze({ type: value.type, itemId: value.itemId, quantity: value.quantity });
+    }
     case "deposit":
     case "withdraw":
-    case "repay_debt":
-      return isPositiveSafeInteger(value.amount)
-        && unusedFieldsAreNull(value, ["amount"])
-        ? Object.freeze({ type: value.type, amount: value.amount })
-        : null;
-    case "heal":
-      return isPositiveSafeInteger(value.points)
-        && unusedFieldsAreNull(value, ["points"])
-        ? Object.freeze({ type: "heal", points: value.points })
-        : null;
-    case "expand_capacity":
-      return unusedFieldsAreNull(value, [])
-        ? Object.freeze({ type: "expand_capacity" })
-        : null;
+    case "repay_debt": {
+      if (!isPositiveSafeInteger(value.amount)) {
+        rejectEnvelope(value, "amount_must_be_positive_integer");
+      }
+      if (!unusedFieldsAreNull(value, ["amount"])) {
+        rejectEnvelope(value, "action_fields_invalid");
+      }
+      return Object.freeze({ type: value.type, amount: value.amount });
+    }
+    case "heal": {
+      if (!isPositiveSafeInteger(value.points)) {
+        rejectEnvelope(value, "points_must_be_positive_integer");
+      }
+      if (!unusedFieldsAreNull(value, ["points"])) {
+        rejectEnvelope(value, "action_fields_invalid");
+      }
+      return Object.freeze({ type: "heal", points: value.points });
+    }
+    case "expand_capacity": {
+      if (!unusedFieldsAreNull(value, [])) rejectEnvelope(value, "action_fields_invalid");
+      return Object.freeze({ type: "expand_capacity" });
+    }
     default:
-      return null;
+      rejectEnvelope(value, "action_type_unknown");
   }
 }
 
 function collectOutputText(
   payload: Record<string, unknown>,
-  responseModelRevision?: string,
+  responseFacts: ProviderResponseFacts,
 ): string | null {
   if (!Array.isArray(payload.output)) return null;
   const chunks: string[] = [];
@@ -200,7 +225,7 @@ function collectOutputText(
           "refusal",
           "OpenAI Responses API 拒绝生成 Arena 动作",
           undefined,
-          { responseModelRevision },
+          responseFacts,
         );
       }
       if (content.type === "output_text" && typeof content.text === "string") {
@@ -250,7 +275,7 @@ function buildRequestBody(
 
 export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
   readonly providerId = "openai";
-  readonly adapterVersion = "openai-responses-v3";
+  readonly adapterVersion = "openai-responses-v4";
   readonly modelId: string;
   readonly maxOutputTokens: number;
   readonly reasoningEffort: ProviderReasoningEffort;
@@ -375,58 +400,6 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
       );
     }
     const responseModelRevision = extractResponseModelRevision(payload);
-    if (payload.status === "incomplete") {
-      throw new DirectProviderRequestError(
-        this.providerId,
-        "incomplete",
-        "OpenAI Responses API 未完成 Arena 动作生成",
-        undefined,
-        { responseModelRevision },
-      );
-    }
-    if (payload.status !== "completed") {
-      throw new DirectProviderRequestError(
-        this.providerId,
-        "invalid_response",
-        "OpenAI Responses API 返回状态不合法",
-        undefined,
-        { responseModelRevision },
-      );
-    }
-
-    const outputText = collectOutputText(payload, responseModelRevision);
-    if (outputText === null) {
-      throw new DirectProviderRequestError(
-        this.providerId,
-        "invalid_response",
-        "OpenAI Responses API 未返回结构化动作",
-        undefined,
-        { responseModelRevision },
-      );
-    }
-
-    let envelope: unknown;
-    try {
-      envelope = JSON.parse(outputText) as unknown;
-    } catch {
-      throw new DirectProviderRequestError(
-        this.providerId,
-        "invalid_response",
-        "OpenAI Responses API 返回的动作无法解析",
-        undefined,
-        { responseModelRevision },
-      );
-    }
-    const action = parseActionEnvelope(envelope);
-    if (!action || !input.observation.allowedActions.includes(action.type)) {
-      throw new DirectProviderRequestError(
-        this.providerId,
-        "invalid_action",
-        "OpenAI Responses API 返回的动作不符合 Arena 契约",
-        undefined,
-        { responseModelRevision },
-      );
-    }
     if (payload.usage !== undefined && !isRecord(payload.usage)) {
       throw new DirectProviderRequestError(
         this.providerId,
@@ -450,6 +423,82 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         "OpenAI Responses API usage 协议不合法",
         undefined,
         { responseModelRevision },
+      );
+    }
+    const responseFacts = Object.freeze({
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+      ...(usage ? { tokenUsage: usage } : {}),
+    });
+    if (payload.status === "incomplete") {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "incomplete",
+        "OpenAI Responses API 未完成 Arena 动作生成",
+        undefined,
+        responseFacts,
+      );
+    }
+    if (payload.status !== "completed") {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        "OpenAI Responses API 返回状态不合法",
+        undefined,
+        responseFacts,
+      );
+    }
+
+    const outputText = collectOutputText(payload, responseFacts);
+    if (outputText === null) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        "OpenAI Responses API 未返回结构化动作",
+        undefined,
+        responseFacts,
+      );
+    }
+
+    let envelope: unknown;
+    try {
+      envelope = JSON.parse(outputText) as unknown;
+    } catch {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        "OpenAI Responses API 返回的动作无法解析",
+        undefined,
+        { ...responseFacts, actionRepairCode: "invalid_json" },
+      );
+    }
+    let action: GameAction;
+    try {
+      action = parseActionEnvelope(envelope);
+    } catch (error: unknown) {
+      const contractError = error instanceof DirectGameActionContractError ? error : undefined;
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_action",
+        "OpenAI Responses API 返回的动作不符合 Arena 契约",
+        undefined,
+        {
+          ...responseFacts,
+          actionRepairCode: contractError?.repairCode ?? "action_fields_invalid",
+          rejectedAction: contractError?.rejectedAction ?? envelope,
+        },
+      );
+    }
+    if (!input.observation.allowedActions.includes(action.type)) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_action",
+        "OpenAI Responses API 返回了当前不可用的 Arena 动作",
+        undefined,
+        {
+          ...responseFacts,
+          actionRepairCode: "action_not_allowed",
+          rejectedAction: action,
+        },
       );
     }
     return Object.freeze({

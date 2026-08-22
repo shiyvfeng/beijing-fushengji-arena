@@ -33,7 +33,7 @@ export interface AgentDecisionHistoryEntry {
 export interface DecisionRetryFeedback {
   readonly category: TechnicalFailureCategory;
   readonly actionErrorCode?: string;
-  readonly rejectedAction?: GameAction;
+  readonly rejectedAction?: SafeRejectedAction;
 }
 
 export interface AgentDecisionInput {
@@ -94,6 +94,68 @@ export type DirectProviderErrorCode =
   | "incomplete"
   | "context_limit";
 
+export interface ProviderTokenUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
+export const DIRECT_ACTION_REPAIR_CODES = Object.freeze([
+  "invalid_json",
+  "action_must_be_object",
+  "action_type_unknown",
+  "action_fields_invalid",
+  "location_id_must_be_non_negative_integer",
+  "item_id_must_be_non_negative_integer",
+  "quantity_must_be_positive_integer",
+  "amount_must_be_positive_integer",
+  "points_must_be_positive_integer",
+  "action_not_allowed",
+] as const);
+
+export type DirectActionRepairCode = (typeof DIRECT_ACTION_REPAIR_CODES)[number];
+
+export interface SafeRejectedAction {
+  readonly type: GameAction["type"] | "unknown";
+  readonly locationId?: number;
+  readonly itemId?: number;
+  readonly quantity?: number;
+  readonly amount?: number;
+  readonly points?: number;
+}
+
+const DIRECT_ACTION_TYPES = new Set<GameAction["type"]>([
+  "move",
+  "buy",
+  "sell",
+  "deposit",
+  "withdraw",
+  "repay_debt",
+  "heal",
+  "expand_capacity",
+]);
+
+/** Keep only the public action discriminant and safe integer fields. */
+export function sanitizeRejectedAction(value: unknown): SafeRejectedAction | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" && DIRECT_ACTION_TYPES.has(record.type as GameAction["type"])
+    ? record.type as GameAction["type"]
+    : "unknown";
+  const summary: {
+    type: SafeRejectedAction["type"];
+    locationId?: number;
+    itemId?: number;
+    quantity?: number;
+    amount?: number;
+    points?: number;
+  } = { type };
+  for (const field of ["locationId", "itemId", "quantity", "amount", "points"] as const) {
+    if (Number.isSafeInteger(record[field])) summary[field] = Number(record[field]);
+  }
+  return Object.freeze(summary);
+}
+
 const ERROR_OBSERVATION: Readonly<Record<DirectProviderErrorCode, {
   readonly domain: FaultDomain;
   readonly countsTowardModelFailure: boolean;
@@ -115,6 +177,9 @@ export class DirectProviderRequestError extends Error {
   readonly domain: FaultDomain;
   readonly countsTowardModelFailure: boolean;
   readonly responseModelRevision?: string;
+  readonly tokenUsage?: ProviderTokenUsage;
+  readonly actionRepairCode?: DirectActionRepairCode;
+  readonly rejectedAction?: SafeRejectedAction;
 
   constructor(
     providerId: string,
@@ -125,6 +190,9 @@ export class DirectProviderRequestError extends Error {
       readonly domain?: FaultDomain;
       readonly countsTowardModelFailure?: boolean;
       readonly responseModelRevision?: string;
+      readonly tokenUsage?: ProviderTokenUsage;
+      readonly actionRepairCode?: DirectActionRepairCode;
+      readonly rejectedAction?: unknown;
     } = {},
   ) {
     super(message);
@@ -138,13 +206,24 @@ export class DirectProviderRequestError extends Error {
     if (observation.responseModelRevision?.trim()) {
       this.responseModelRevision = observation.responseModelRevision.trim();
     }
+    if (observation.tokenUsage) {
+      const { inputTokens, outputTokens, totalTokens } = observation.tokenUsage;
+      if (!Number.isSafeInteger(inputTokens) || inputTokens < 0
+        || !Number.isSafeInteger(outputTokens) || outputTokens < 0
+        || !Number.isSafeInteger(totalTokens) || totalTokens < inputTokens + outputTokens) {
+        throw new Error("DirectProviderRequestError tokenUsage 无效");
+      }
+      this.tokenUsage = Object.freeze({ inputTokens, outputTokens, totalTokens });
+    }
+    if (observation.actionRepairCode) {
+      if (!DIRECT_ACTION_REPAIR_CODES.includes(observation.actionRepairCode)) {
+        throw new Error("DirectProviderRequestError actionRepairCode 无效");
+      }
+      this.actionRepairCode = observation.actionRepairCode;
+    }
+    const rejectedAction = sanitizeRejectedAction(observation.rejectedAction);
+    if (rejectedAction) this.rejectedAction = rejectedAction;
   }
-}
-
-export interface ProviderTokenUsage {
-  readonly inputTokens: number;
-  readonly outputTokens: number;
-  readonly totalTokens: number;
 }
 
 export interface DirectProviderDecisionResult {
@@ -174,7 +253,7 @@ export interface DirectCompetitionProfile {
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
   readonly contextPolicyVersion: "bounded-history-v1";
-  readonly recoveryPolicyVersion: "bounded-retry-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v2";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly maxOutputTokensPerRequest: number;
 }

@@ -6,7 +6,7 @@
 
 北京浮生记 Arena 是一个 Direct Model 娱乐化 Benchmark：模型通过统一事实环境独立完成 40 天交易游戏，Runner 产出可审计 Replay、Trace、运行报告和单文件离线页面。
 
-- **当前源码事实**：五模型 Direct Runner 已采用最低非关闭思考、`bounded-history-v1`、`bounded-retry-v1`、Probe → 十步 Stability → Match 门禁、`arena-schema-v4` Replay/Web 和 Report v5；Core/Web 离线闭环已通过。
+- **当前源码事实**：五模型 Direct Runner 已采用最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2`、Probe → 十步 Stability → Match 门禁、`arena-schema-v4` Replay/Web 和 Report v5；最近一次 v1 Stability 仅 3/5，升级契约后须从 Probe 重新验收。
 - **待验收目标**：执行真实五 Provider Probe、至少 3 场新版 Direct 金样，并为每场保存正式自动浏览器报告；完成前不能称完整 P0 已验收。
 - **历史证据**：2026-08-21 的 `run-001` 固定为四槽 v2，不计新版金样，也不回填。
 - **P0.5**：独立 Replay Enrichment，默认使用与五个 Runner 配置分离的第六模型配置。
@@ -75,7 +75,7 @@ Scripted 相关命令只保留为内部确定性回归工具，不属于产品�
 - UI 只显示 `Provider + Model`，不显示 A/B/C/D、策略化名称或 persona。
 - 所有模型使用 `neutral-v1`、无身份 Observation、`bounded-history-v1`、同一规则/预算/超时/输出上限和最低非关闭 `low`；DeepSeek 保持 `thinking=enabled`。
 - 上下文固定为当前完整 Observation、最近 5 天确定性摘要、最近 8 条完整动作和更早历史聚合；不按 Provider 差异化裁剪，不含旧 Observation 或跨局事实。
-- `bounded-retry-v1` 在 120 秒逻辑决策预算内将单次尝试限制为 60 秒；每决策最多 3 次，修复重试最多 2 次、瞬态重试最多 1 次，不重试 `context_limit`、鉴权/额度及其他终止错误。
+- `bounded-retry-v2` 在 120 秒逻辑决策预算内将单次尝试限制为 60 秒；每决策最多 3 次，修复重试最多 2 次、瞬态重试最多 1 次，不重试 `context_limit`、鉴权/额度及其他终止错误。修复反馈必须使用脱敏的具体错误码和安全动作摘要；HTTP 200 的无效动作仍计入 Token、revision 与延迟。
 - slot 仅为内部确定性标识；`cyclic-v1` 按 `slot = (entryIndex + rotationIndex) % 5` 轮换。
 - Runner 只输出事实，不生成高光、采访、奖项、结局或解说。
 - Day 40 只展示 DNF、正式排名和个人随机事件原始计数，不在 Runner 内生成幸运/倒霉结论。

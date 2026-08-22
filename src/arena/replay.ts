@@ -448,7 +448,7 @@ export function assembleMatchReplay(
       || competitionAudit.publicRandomization !== "shared-seed"
       || competitionAudit.personalRandomization !== "slot-isolated"
       || competitionAudit.contextPolicyVersion !== "bounded-history-v1"
-      || competitionAudit.recoveryPolicyVersion !== "bounded-retry-v1"
+      || competitionAudit.recoveryPolicyVersion !== "bounded-retry-v2"
       || competitionAudit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
       || competitionAudit.slotRotation.version !== "cyclic-v1"
       || competitionAudit.slotRotation.mappings.length !== 5) {

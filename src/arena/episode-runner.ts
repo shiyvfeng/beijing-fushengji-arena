@@ -482,7 +482,15 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
           linkRetryEvidence(config.driver, evidence, facts.category);
           if (retryKind === "repair") repairRetries++;
           else transientRetries++;
-          retryFeedback = Object.freeze({ category: facts.category });
+          retryFeedback = Object.freeze({
+            category: facts.category,
+            ...(error instanceof DirectProviderRequestError && error.actionRepairCode
+              ? { actionErrorCode: error.actionRepairCode }
+              : {}),
+            ...(error instanceof DirectProviderRequestError && error.rejectedAction
+              ? { rejectedAction: error.rejectedAction }
+              : {}),
+          });
           attemptIndex++;
           continue;
         }

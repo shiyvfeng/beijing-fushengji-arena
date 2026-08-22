@@ -184,7 +184,7 @@ function limitationsFor(executionMode: ArenaExecutionMode): readonly string[] {
   if (executionMode === "direct") {
     return Object.freeze([
       "本次对局经 DirectModelDriver 请求已配置的 Provider Adapter；Runner 不推断 Adapter 是在线模型还是测试替身。",
-      "五个参赛者使用同一 neutral-v1 决策策略、bounded-history-v1 上下文、bounded-retry-v1 恢复策略与无身份模型观察；Provider、模型、slot 和审计 ID 不进入模型上下文。",
+      "五个参赛者使用同一 neutral-v1 决策策略、bounded-history-v1 上下文、bounded-retry-v2 恢复策略与无身份模型观察；Provider、模型、slot 和审计 ID 不进入模型上下文。",
       "公共随机流共享 seed，个人随机事件按 cyclic-v1 轮换后的 slot 隔离，因此本场属于受控五模型展示赛。",
       "Provider/模型标识进入可验证 Replay；密钥、原始交换和系统指令正文不进入 Trace/Replay。",
       "采访、导演高光、奖项、结局和 MCP Host 不属于当前 Direct-only Arena 验收范围。",
