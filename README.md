@@ -58,6 +58,8 @@ npm run arena:direct -- --output-dir <same-output-directory> --confirm-live-run
 npm run arena:replay -- --input <replay.json>
 ```
 
+正式比赛会持续输出以 `[arena-progress] ` 开头的 `arena-live-progress-v1` JSONL，只包含 Agent、Provider/model、Day、动作类型、请求/Token、延迟和结构化故障域；不输出凭据、Prompt、完整历史或响应正文。需要诊断上游正文时可在本机显式开启 `ARENA_SAVE_RAW_EXCHANGES=true`，其产物只写入被 Git 排除的 `dist/arena-diagnostics/`，不得对外粘贴。
+
 Direct Runner 默认读取仓库根目录的本地 `.env`，使用 `ARENA_AGENT_A...E_*` 五组本地配置；A–E 只是配置入口，不是公开身份。每组必须显式配置 `REASONING_EFFORT`，可声明 `MODEL_REVISION`；DeepSeek 另有独立 `THINKING` 开关。全场可覆盖总墙钟、轮换和输出预算。Probe 摘要的配置指纹包含 thinking 与 reasoning effort，但不包含 API Key 或其 hash，因此只更换 API Key 无法由门禁识别，需由操作者主动重新 Probe。完整 Provider 协议、审计、诊断和恢复构建边界见 [Direct Arena 运行说明](docs/arena-direct.md)。
 
 Scripted 模式只保留为内部确定性回归工具，不属于产品范围、P0 验收或用户运行主流程。strict MCP 移入 P1；当前 legacy MCP 入口不迁移、不扩建，也不属于 Direct P0。

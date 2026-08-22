@@ -1,6 +1,8 @@
 import { performance } from "node:perf_hooks";
 import type {
+  DriverKind,
   EpisodeConfig,
+  EpisodeStatus,
   EpisodeTrace,
   FaultDomain,
   GameAction,
@@ -28,7 +30,69 @@ export interface EpisodeRunConfig {
   readonly resetTimeoutMs?: number;
   readonly decisionTimeoutMs?: number;
   readonly totalWallClockMs?: number;
+  readonly onProgress?: EpisodeProgressReporter;
 }
+
+interface EpisodeProgressBase {
+  readonly artifactType: "arena-live-progress-v1";
+  readonly agentId: string;
+  readonly agentSlot: number;
+  readonly driver: DriverKind;
+  readonly provider: string | null;
+  readonly model: string | null;
+}
+
+export type EpisodeProgressEvent = Readonly<EpisodeProgressBase & (
+  | {
+      readonly event: "episode_started";
+      readonly day: number;
+    }
+  | {
+      readonly event: "decision_started";
+      readonly actionIndex: number;
+      readonly day: number;
+      readonly historyLength: number;
+      readonly requestCount: number;
+    }
+  | {
+      readonly event: "action_completed";
+      readonly actionIndex: number;
+      readonly actionType: GameAction["type"];
+      readonly actionSucceeded: boolean;
+      readonly dayBefore: number;
+      readonly dayAfter: number;
+      readonly stateStatus: EpisodeStatus;
+      readonly requestCount: number;
+      readonly successfulRequestCount: number;
+      readonly failedRequestCount: number;
+      readonly lastCallLatencyMs: number | null;
+      readonly lastCallInputTokens: number | null;
+      readonly lastCallOutputTokens: number | null;
+      readonly cumulativeTotalTokens: number;
+    }
+  | {
+      readonly event: "episode_completed";
+      readonly status: Exclude<EpisodeStatus, "running">;
+      readonly endDay: number;
+      readonly actionCount: number;
+      readonly validActionCount: number;
+      readonly invalidActionCount: number;
+      readonly requestCount: number;
+      readonly successfulRequestCount: number;
+      readonly failedRequestCount: number;
+      readonly requestsWithoutUsage: number;
+      readonly cumulativeInputTokens: number;
+      readonly cumulativeOutputTokens: number;
+      readonly cumulativeTotalTokens: number;
+      readonly lastCallLatencyMs: number | null;
+      readonly failureCategory: TechnicalFailureCategory | null;
+      readonly faultDomain: FaultDomain | null;
+      readonly countsTowardModelFailure: boolean | null;
+      readonly httpStatus: number | null;
+    }
+)>;
+
+export type EpisodeProgressReporter = (event: EpisodeProgressEvent) => void;
 
 export interface EpisodeRunReport {
   readonly agentId: string;
@@ -129,6 +193,28 @@ function linkTerminationEvidence(
   }
 }
 
+function progressBase(driver: AgentDriver): EpisodeProgressBase {
+  const descriptor = driver.descriptor;
+  return {
+    artifactType: "arena-live-progress-v1",
+    agentId: descriptor.id,
+    agentSlot: descriptor.slot,
+    driver: descriptor.driver,
+    provider: descriptor.provider ?? null,
+    model: descriptor.model ?? null,
+  };
+}
+
+/** Progress is a non-authoritative side channel and must never change match facts. */
+function emitProgress(reporter: EpisodeProgressReporter | undefined, event: EpisodeProgressEvent): void {
+  if (!reporter) return;
+  try {
+    reporter(Object.freeze(event));
+  } catch {
+    // A closed terminal or observer failure cannot terminate an Agent episode.
+  }
+}
+
 export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOutput> {
   const environment = new GameEnvironment();
   const descriptor = config.driver.descriptor;
@@ -168,6 +254,14 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
   const history: AgentDecisionHistoryEntry[] = [];
 
   environment.reset(episodeConfig);
+  const base = progressBase(config.driver);
+  if (config.onProgress) {
+    emitProgress(config.onProgress, Object.freeze({
+      ...base,
+      event: "episode_started",
+      day: environment.observe().state.day,
+    }));
+  }
   try {
     await withDriverTimeout("reset", resetTimeoutMs, "timeout", signal => config.driver.reset?.({ signal }));
     const wallClockStartedAt = performance.now();
@@ -208,6 +302,16 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
         ? "total_wall_clock" as const
         : "timeout" as const;
       driverPhase = "decide";
+      if (config.onProgress) {
+        emitProgress(config.onProgress, Object.freeze({
+          ...base,
+          event: "decision_started",
+          actionIndex: actionCount,
+          day: environment.observe().state.day,
+          historyLength: history.length,
+          requestCount: config.driver.getRunMetrics?.().requestCount ?? 0,
+        }));
+      }
       const decision = normalizeDecisionOutput(await withDriverTimeout(
         "decide",
         effectiveTimeout,
@@ -222,6 +326,7 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
       ));
       driverPhase = "action";
       const result = environment.step(decision.action, decision.evidence);
+      const actionIndex = actionCount;
       actionCount++;
       if (result.event) {
         linkActionEvidence(config.driver, decision.evidence, result.event.id);
@@ -235,6 +340,27 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
             effects: result.event.result.effects,
           }),
           stateDiff: result.event.stateDiff,
+        }));
+      }
+      if (config.onProgress) {
+        const metrics = config.driver.getRunMetrics?.();
+        const lastCall = metrics?.calls.at(-1);
+        emitProgress(config.onProgress, Object.freeze({
+          ...base,
+          event: "action_completed",
+          actionIndex,
+          actionType: decision.action.type,
+          actionSucceeded: result.success,
+          dayBefore: result.before.day,
+          dayAfter: result.after.day,
+          stateStatus: result.after.status,
+          requestCount: metrics?.requestCount ?? 0,
+          successfulRequestCount: metrics?.successfulRequestCount ?? 0,
+          failedRequestCount: metrics?.failedRequestCount ?? 0,
+          lastCallLatencyMs: lastCall?.latencyMs ?? null,
+          lastCallInputTokens: lastCall?.tokenUsage?.inputTokens ?? null,
+          lastCallOutputTokens: lastCall?.tokenUsage?.outputTokens ?? null,
+          cumulativeTotalTokens: metrics?.totalTokens ?? 0,
         }));
       }
       if (result.success) {
@@ -317,23 +443,52 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
 
   environment.finalize();
   const trace = environment.exportTrace(descriptor);
-  return {
-    trace,
-    report: Object.freeze({
-      agentId: descriptor.id,
-      agentSlot: descriptor.slot,
-      driver: descriptor.driver,
+  const requestMetrics = config.driver.getRunMetrics?.();
+  const report = Object.freeze({
+    agentId: descriptor.id,
+    agentSlot: descriptor.slot,
+    driver: descriptor.driver,
+    status: trace.finalResult.status,
+    actionCount,
+    validActionCount: actionCount - invalidActionCount,
+    invalidActionCount,
+    timeoutCount: timeoutPhase ? 1 : 0,
+    totalWallClockMs,
+    traceHash: trace.traceHash,
+    ...(trace.finalResult.technicalFailure ? { technicalFailure: trace.finalResult.technicalFailure } : {}),
+    ...(requestMetrics ? { requestMetrics } : {}),
+    ...(diagnostic ? { diagnostic } : {}),
+    ...(timeoutPhase ? { timeoutPhase } : {}),
+  });
+  if (config.onProgress) {
+    const lastCall = requestMetrics?.calls.at(-1);
+    const failure = trace.finalResult.technicalFailure;
+    emitProgress(config.onProgress, Object.freeze({
+      ...base,
+      event: "episode_completed",
       status: trace.finalResult.status,
+      endDay: trace.finalResult.endDay,
       actionCount,
       validActionCount: actionCount - invalidActionCount,
       invalidActionCount,
-      timeoutCount: timeoutPhase ? 1 : 0,
-      totalWallClockMs,
-      traceHash: trace.traceHash,
-      ...(trace.finalResult.technicalFailure ? { technicalFailure: trace.finalResult.technicalFailure } : {}),
-      ...(config.driver.getRunMetrics ? { requestMetrics: config.driver.getRunMetrics() } : {}),
-      ...(diagnostic ? { diagnostic } : {}),
-      ...(timeoutPhase ? { timeoutPhase } : {}),
-    }),
+      requestCount: requestMetrics?.requestCount ?? 0,
+      successfulRequestCount: requestMetrics?.successfulRequestCount ?? 0,
+      failedRequestCount: requestMetrics?.failedRequestCount ?? 0,
+      requestsWithoutUsage: requestMetrics
+        ? requestMetrics.requestCount - requestMetrics.usageReportedRequestCount
+        : 0,
+      cumulativeInputTokens: requestMetrics?.inputTokens ?? 0,
+      cumulativeOutputTokens: requestMetrics?.outputTokens ?? 0,
+      cumulativeTotalTokens: requestMetrics?.totalTokens ?? 0,
+      lastCallLatencyMs: lastCall?.latencyMs ?? null,
+      failureCategory: failure?.category ?? null,
+      faultDomain: failure?.domain ?? null,
+      countsTowardModelFailure: failure?.countsTowardModelFailure ?? null,
+      httpStatus: failure?.httpStatus ?? null,
+    }));
+  }
+  return {
+    trace,
+    report,
   };
 }

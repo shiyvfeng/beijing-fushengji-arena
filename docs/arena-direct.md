@@ -130,6 +130,19 @@ CLI 会在任何付费比赛请求前读取同目录最新摘要，只有配置�
 
 Run Report 对每个技术终止明确记录 `countsTowardModelFailure`。Token 保留 input、output、total 和 usage 缺失数，并提供逐请求、逐 Agent 和全场汇总；不估算货币价格，也不用于排名。
 
+## 实时脱敏事实进度
+
+正式比赛在 stdout 逐行输出 `arena-live-progress-v1` JSONL，每行固定以 `[arena-progress] ` 开头。该旁路只从 GameEnvironment 和逐请求账本中读取事实，不进入 Trace、Replay、Report 或 hash；终端关闭或进度消费者抛错不能改变任何 Episode 结果。
+
+| `event` | 内容 |
+| --- | --- |
+| `episode_started` | Agent、Provider/model、slot 和初始 Day |
+| `decision_started` | 请求序号、当前 Day、历史动作条数和已发请求数 |
+| `action_completed` | 动作类型、动作成败、Day 前后值、单次延迟/Token 与累计请求/Token |
+| `episode_completed` | 终止 Day、动作/请求汇总、最后延迟、故障类别、故障域和是否计入模型失败 |
+
+进度事件不含 API Key、Base URL、Prompt、Observation、完整历史、上下文/观察 hash、`modelCallId`、响应正文、状态 diff、余额或任意上游错误消息。每行写出前再次执行敏感信息扫描；可用 `jq`、日志采集器或人工终端按 Provider 独立跟踪。
+
 ## 原始交换诊断
 
 `ARENA_SAVE_RAW_EXCHANGES` 代码默认关闭；关闭时 Probe 和 Match 都不会创建正文文件。开启后统一写入：
@@ -139,7 +152,7 @@ dist/arena-diagnostics/<matchId>/probe/
 dist/arena-diagnostics/<matchId>/match/
 ```
 
-每个 exchange 保存完整请求/响应正文和安全元数据，同时移除 Authorization、API Key、Cookie、Set-Cookie、Bearer 值及嵌套凭据字段。目录已被 Git 与 npm 包清单排除，不属于比赛输出包，也不自动清理。启停诊断不得改变 action、Trace、Replay、fact hash 或排名。
+每个 exchange 保存完整请求/响应正文和安全元数据，同时移除 Authorization、API Key、Cookie、Set-Cookie、Bearer 值及嵌套凭据字段。正文仍包含 Prompt、完整历史和模型原始输出，只能在本机用于受控诊断，不应粘贴到聊天、提交 Git 或进入比赛输出包。目录已被 Git 与 npm 包清单排除，也不自动清理。启停诊断不得改变 action、Trace、Replay、fact hash 或排名。
 
 ## 正式产物、Replay 与观众页
 

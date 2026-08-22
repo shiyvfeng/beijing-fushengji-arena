@@ -134,6 +134,8 @@ test("Direct action parser accepts exact schemas and rejects dirty provider outp
 
 test("five Direct models use full-history-v1 and produce one-to-one request evidence", async () => {
   const { drivers, captures } = directDrivers({ omitUsageEntry: 4 });
+  const progress = [];
+  let reporterFailureInjected = false;
   const output = await runMatch({
     matchId: "direct-fake-complete",
     seed: 20260820,
@@ -143,6 +145,13 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
     decisionTimeoutMs: 1_000,
     totalWallClockMs: 160_000,
     slotRotationIndex: 0,
+    onProgress(event) {
+      progress.push(event);
+      if (!reporterFailureInjected && event.event === "decision_started") {
+        reporterFailureInjected = true;
+        throw new Error("observer failure must not alter match facts");
+      }
+    },
   });
 
   assert.equal(output.report.executionMode, "direct");
@@ -198,6 +207,30 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
   ))));
   assert.ok(report.agents.every(agent => agent.modelCalls[0].modelRevision.mismatch));
   assert.equal(findPotentialSecrets(report).length, 0);
+
+  assert.equal(reporterFailureInjected, true);
+  assert.ok(progress.every(event => Object.isFrozen(event)));
+  assert.equal(progress.filter(event => event.event === "episode_started").length, 5);
+  assert.equal(progress.filter(event => event.event === "episode_completed").length, 5);
+  assert.equal(
+    progress.filter(event => event.event === "decision_started").length,
+    report.totals.requestCount,
+  );
+  assert.equal(
+    progress.filter(event => event.event === "action_completed").length,
+    report.totals.successfulRequests,
+  );
+  assert.equal(findPotentialSecrets(progress).length, 0);
+  const serializedProgress = JSON.stringify(progress);
+  for (const forbidden of [
+    "systemInstruction", "userContext", "fullContextHash", "observationHash",
+    "modelCallId", "stateDiff", "effects", "message", "apiKey", "authorization", "response",
+  ]) assert.equal(serializedProgress.includes(forbidden), false, `progress leaked ${forbidden}`);
+  for (const event of progress.filter(event => event.event === "action_completed")) {
+    assert.equal(typeof event.actionType, "string");
+    assert.equal(typeof event.lastCallLatencyMs, "number");
+    assert.equal(typeof event.cumulativeTotalTokens, "number");
+  }
 });
 
 test("cyclic-v1 rotates only personal slots while public market facts stay shared", async () => {
@@ -288,8 +321,10 @@ test("per-Agent total wall clock terminates only the exhausted contestant", asyn
     seed: 20260820,
     scenario: DEFAULT_SCENARIO,
     drivers,
-    decisionTimeoutMs: 1_000,
-    totalWallClockMs: 500,
+    // Keep enough headroom for the four CPU-bound fake episodes when Node runs
+    // multiple test files concurrently; only the never-resolving Provider should expire.
+    decisionTimeoutMs: 3_000,
+    totalWallClockMs: 2_000,
   });
   const failed = output.traces.find(trace => trace.agentId === "competitor-1");
   assert.equal(failed.finalResult.status, "model_timeout");

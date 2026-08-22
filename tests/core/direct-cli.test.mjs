@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import { findPotentialSecrets } from "../../dist/core/secret-scan.js";
 
 const cliPath = new URL("../../dist/arena-direct-cli.js", import.meta.url);
 const wrapperPath = new URL("../../scripts/run-arena-direct.mjs", import.meta.url);
@@ -277,6 +278,16 @@ test("five Fake Providers complete Probe + Match and create the formal artifact 
   const matchRun = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--confirm-live-run"], rotatedKeyEnv);
   assert.equal(matchRun.status, 0, matchRun.stderr);
   assert.equal(`${matchRun.stdout}${matchRun.stderr}`.includes(TEST_SECRET), false);
+  const progress = matchRun.stdout
+    .split("\n")
+    .filter(line => line.startsWith("[arena-progress] "))
+    .map(line => JSON.parse(line.slice("[arena-progress] ".length)));
+  assert.equal(progress.filter(event => event.event === "episode_started").length, 5);
+  assert.equal(progress.filter(event => event.event === "episode_completed").length, 5);
+  assert.ok(progress.some(event => event.event === "decision_started"));
+  assert.ok(progress.some(event => event.event === "action_completed"));
+  assert.equal(findPotentialSecrets(progress).length, 0);
+  assert.equal(JSON.stringify(progress).includes("userContext"), false);
   for (const file of ["probe-summary.json", "episode-traces.json", "replay.json", "run-report.json", "replay.html"]) {
     assert.equal(existsSync(join(outputDir, file)), true, `${file} missing`);
   }

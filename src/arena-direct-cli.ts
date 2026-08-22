@@ -16,6 +16,7 @@ import { parseEnv } from "node:util";
 import type { RawExchangeRecorder } from "./arena/diagnostics.js";
 import { createRawExchangeRecorder } from "./arena/diagnostics.js";
 import { DEFAULT_DIRECT_AGENT_SPECS, DirectModelDriver } from "./arena/direct-driver.js";
+import type { EpisodeProgressEvent } from "./arena/episode-runner.js";
 import { runMatch } from "./arena/match-runner.js";
 import {
   assertMatchingProviderProbe,
@@ -41,6 +42,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 512;
 const REPOSITORY_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DEFAULT_ENV_FILE = join(REPOSITORY_ROOT, ".env");
 const DIAGNOSTICS_ROOT = join(REPOSITORY_ROOT, "dist", "arena-diagnostics");
+const LIVE_PROGRESS_PREFIX = "[arena-progress] ";
 
 const AGENT_MODEL_OPTIONS = CONFIG_LETTERS.map(letter => `--agent-${letter.toLowerCase()}-model`);
 const AGENT_ENV_NAMES = CONFIG_LETTERS.flatMap(letter => [
@@ -123,6 +125,7 @@ function usage(): string {
     "  --help",
     "",
     `默认最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT}；自动重试为 0。`,
+    "正式比赛实时输出 arena-live-progress-v1 JSONL；只含脱敏事实与请求统计。",
     "ARENA_SAVE_RAW_EXCHANGES 默认为 false；开启后诊断只写 dist/arena-diagnostics。",
   ].join("\n");
 }
@@ -477,8 +480,20 @@ function configurationSummary(options: DirectCliOptions): string {
     `  每 Agent 总墙钟: ${options.totalWallClockMs} ms`,
     `  单次输出上限: ${options.maxOutputTokens} tokens`,
     `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
+    ...(options.saveRawExchanges
+      ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,match}`]
+      : []),
+    "  实时进度: arena-live-progress-v1 JSONL（仅脱敏事实字段）",
     "  自动重试: 0",
   ].join("\n");
+}
+
+function writeLiveProgress(event: EpisodeProgressEvent): void {
+  if (findPotentialSecrets(event).length > 0) {
+    process.stderr.write("Arena 实时进度事件触发敏感信息守卫，已跳过该行。\n");
+    return;
+  }
+  process.stdout.write(`${LIVE_PROGRESS_PREFIX}${JSON.stringify(event)}\n`);
 }
 
 function assertKeysConfigured(options: DirectCliOptions): void {
@@ -632,6 +647,7 @@ async function main(): Promise<void> {
       decisionTimeoutMs: options.decisionTimeoutMs,
       totalWallClockMs: options.totalWallClockMs,
       slotRotationIndex: options.slotRotationIndex,
+      onProgress: writeLiveProgress,
     });
   } finally {
     await recorder?.flush();

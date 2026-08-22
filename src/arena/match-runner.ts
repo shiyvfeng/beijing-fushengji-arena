@@ -8,7 +8,11 @@ import type {
 import { DEFAULT_SCENARIO } from "../core/scenario.js";
 import { assembleMatchReplay } from "./replay.js";
 import type { AgentDriver } from "./agent-driver.js";
-import { runEpisode, type EpisodeRunReport } from "./episode-runner.js";
+import {
+  runEpisode,
+  type EpisodeProgressReporter,
+  type EpisodeRunReport,
+} from "./episode-runner.js";
 import { createSampleScriptedDrivers } from "./scripted-driver.js";
 
 export interface MatchRunConfig {
@@ -21,6 +25,7 @@ export interface MatchRunConfig {
   readonly decisionTimeoutMs?: number;
   readonly totalWallClockMs?: number;
   readonly slotRotationIndex?: number;
+  readonly onProgress?: EpisodeProgressReporter;
 }
 
 export interface MatchRunReport {
@@ -192,6 +197,7 @@ export async function runMatch(config: MatchRunConfig): Promise<MatchRunOutput> 
     ...(config.resetTimeoutMs !== undefined ? { resetTimeoutMs: config.resetTimeoutMs } : {}),
     ...(config.decisionTimeoutMs !== undefined ? { decisionTimeoutMs: config.decisionTimeoutMs } : {}),
     ...(config.totalWallClockMs !== undefined ? { totalWallClockMs: config.totalWallClockMs } : {}),
+    ...(config.onProgress ? { onProgress: config.onProgress } : {}),
   })));
   outputs.sort((a, b) => a.trace.agentSlot - b.trace.agentSlot);
   const traces = outputs.map(output => output.trace);
