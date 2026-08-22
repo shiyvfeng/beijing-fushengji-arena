@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v2` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 为 v4/v5。新版真实金样当前仍为 `0/3`：`run-002` 最近一次 Probe 5/5，但 Stability 仅 3/5；随后针对具体修复反馈和失败响应 Token 账本升级了恢复/Adapter 契约，因此该轮门禁已降为诊断证据，尚无新策略正式比赛产物。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
+当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v2` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 为 v4/v5。新版真实金样当前仍为 `0/3`：`run-002` 的新版 Probe 与十步 Stability 已分别达到 5/5；Stability 共 52 次请求、50 个有效动作，DeepSeek 超时与 Qwen 环境无效动作各一次且均成功恢复。正式比赛仍须单独授权。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 

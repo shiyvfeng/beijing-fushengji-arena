@@ -1,6 +1,6 @@
 # 北京浮生记 Arena 项目进度台账
 
-> 台账状态：`bounded-retry-v2` 已通过完整离线验收；最近一次真实 Stability 为 3/5，等待新本地基线与重新 Probe 授权
+> 台账状态：`bounded-retry-v2` 已通过完整离线验收、Probe 5/5 与 Stability 5/5；等待单独授权启动正式 `run-002`
 >
 > 首次建立：2026-08-21
 >
@@ -8,7 +8,7 @@
 >
 > 产品方案基线：[《北京浮生记 Arena》娱乐化 Benchmark 产品与开发方案（v2.2，2026-08-22）](北京浮生记_Arena_娱乐化Benchmark产品与开发方案_v2.md)
 >
-> 本次边界：已授权离线修复 Stability 暴露的两项问题：修复反馈缺少具体原因，以及 HTTP 200 无效动作漏记 Token。恢复契约已升级为 `bounded-retry-v2`；本轮修复不调用 Provider，旧 Probe/Stability 因指纹变化降为诊断证据。
+> 本次边界：两项离线修复已在本地提交；产品负责人随后分别授权 `bounded-retry-v2` 的 `run-002` Probe 与十步 Stability，两道门禁均为 5/5。正式比赛尚未授权、未启动。
 
 ## 1. 台账用途与更新规则
 
@@ -48,7 +48,7 @@
 
 | 范围 | 当前状态 | 审计结论 |
 | --- | --- | --- |
-| 修订后 Direct-only P0 | 已实现，待完整验收 | 新策略真实金样 `0/3`；`bounded-retry-v1` 的 Probe 5/5、Stability 3/5 和更早 `run-002` 均只作诊断，v2 须重新通过 Probe、Stability 和正式比赛 |
+| 修订后 Direct-only P0 | 已实现，待完整验收 | 新策略真实金样 `0/3`；`bounded-retry-v2` Probe 与 Stability 均已 5/5，通过后仍须完成正式比赛和浏览器验收 |
 | 当前四模型纵向切片 | 已验证，作为历史证据保留 | 四组独立配置、四请求 Probe、真实比赛、Replay/Trace/Report、单文件 HTML 和 Day 1～40 事实回放已经串通；不等于新版五模型 P0 已完成 |
 | P0.5 Replay Enrichment | 后续阶段 | 使用事实 Replay 生成程序化高光、采访、奖项、结局和可选 LLM 文案；配置与五组 Runner `Provider + model` 均不重复的第 6 个 Replay 娱乐加工模型，但赛后采访例外调用各选手原模型 |
 | P1 strict MCP | 后续阶段 | `StrictMcpEpisodePort` 仅保留接口占位；当前不开发、不验收，不纳入 P0 完成声明 |
@@ -69,7 +69,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 - 页面使用统一日期切片，第 40 天前不展示正式排名；
 - 离线页面不重新调用 Runner，也不改变事实 Replay。
 
-五模型契约现为：恰好五个不同 `Provider + model`、`cyclic-v1`、五家显式 `low`、`bounded-history-v1`、固定 120 秒逻辑决策预算内的 `bounded-retry-v2`、逐请求 v2 账本、Probe v3、十步 Stability v1、Replay v4 和 Report v5。v2 不增加尝试或时间预算，只向修复重试提供脱敏具体错误码和安全被拒动作摘要，并在 HTTP 200 动作失败时保留 usage/revision/latency。所有既有 `run-002` 均早于该契约，当前正式计数仍为 `0/3`。
+五模型契约现为：恰好五个不同 `Provider + model`、`cyclic-v1`、五家显式 `low`、`bounded-history-v1`、固定 120 秒逻辑决策预算内的 `bounded-retry-v2`、逐请求 v2 账本、Probe v3、十步 Stability v1、Replay v4 和 Report v5。v2 不增加尝试或时间预算，只向修复重试提供脱敏具体错误码和安全被拒动作摘要，并在 HTTP 200 动作失败时保留 usage/revision/latency。该契约的 `run-002` Probe 与 Stability 均已 5/5；尚无新版正式比赛，当前计数仍为 `0/3`。
 
 ### 2.3 已确认视觉方向
 
@@ -132,7 +132,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 | --- | --- | --- | --- |
 | 阶段 0：产品与文档收口 | 已完成 | v2.2 产品方案、台账、README、Direct/历史验收、Web/视觉和 Agent 说明 Markdown 已形成单一口径 | Arena 主包 name/main/bin/engine 已同步，legacy MCP bin 保留 |
 | 阶段 1：确定性核心环境 | 基本完成 | `GameEnvironment`、坐标式 seeded RNG、公共/个人随机流、不可变快照、diff、稳定事件 ID、统一估值与幂等终局均有代码和测试 | 当前 P0 不要求扩展 information/NPC 随机流；现有 Scripted 仅保留为内部确定性回归工具 |
-| 阶段 2：五模型 Direct Runner | 已实现，真实新样本 0 场 | 最低非关闭思考、Probe + Stability 门禁、120 秒逻辑预算和故障隔离已离线验证 | v2 基线后取得授权重新 Probe 与十步 Stability |
+| 阶段 2：五模型 Direct Runner | 已实现，真实新样本 0 场 | 最低非关闭思考、Probe + Stability 门禁、120 秒逻辑预算和故障隔离已离线验证；v2 Probe/Stability 均 5/5 | 取得单独授权执行正式比赛 |
 | 阶段 3：上下文与审计 | 已实现，真实新样本 0 场 | `bounded-history-v1`、`bounded-retry-v2`、model-call v2、具体修复反馈和失败响应事实保留已通过针对性单测 | 用 v2 真实 Stability 复核延迟、Token 和恢复率 |
 | 阶段 4：事实 Replay 与报告 | 已实现，真实新样本 0 场 | Replay v4、Report v5、Probe v3、Stability v1 与确定性重建已离线通过 | 新策略正式比赛后生成真实产物 |
 | 阶段 5：事实观众页与自动验收 | 框架已验证，正式报告 0/3 | Web 11/11、Node 24 双视口 Fixture 14/14；旧策略报告只作诊断 | 每场新金样生成正式报告 |
@@ -215,8 +215,8 @@ Replay Enrichment 的隔离补充约束：
 
 ## 10. 后续待办
 
-1. **完成 v2 本地基线**：完成 Core/Web/typecheck/Node 24 浏览器、敏感信息扫描、`git diff --check` 和本地提交；不推送。
-2. **重新执行 `run-002` 门禁**：v1 Probe/Stability 已失效；另行授权后先 Probe v3，再单独授权十步 Stability，任一步失败均不启动正式比赛。
+1. **完成 v2 本地基线**：已完成 Core/Web/typecheck/Node 24 浏览器、敏感信息扫描、`git diff --check` 和本地提交；未推送。
+2. **执行正式 `run-002`**：v2 Probe 与十步 Stability 均已 5/5；另行授权后才启动正式比赛，结束后执行事实产物与浏览器验收。
 3. **完成三场新策略金样**：`run-002`、`run-003`、`run-004` 使用同一五模型组合、Prompt、120 秒逻辑上限、4096 输出上限和恢复策略，只改变 seed/rotation；每场保存正式浏览器报告。
 4. **事实层稳定后启动 P0.5 Replay Enrichment**：先实现程序化高光和导演筛选的关键事件对比，再加入赛后采访、奖项、结局和可选 LLM 文案；通用生成启用与五组 Runner 均不重复的第 6 个加工模型，采访原模型例外建立历史截面与不回写 Runner 的隔离测试。
 
@@ -224,6 +224,8 @@ Replay Enrichment 的隔离补充约束：
 
 | 日期 | 记录 |
 | --- | --- |
+| 2026-08-22 | 经产品负责人单独授权，执行 `bounded-retry-v2` 的 `run-002` 十步 Stability：五家 5/5，共 52 请求、50 有效动作、1 环境无效动作、1 请求失败、2 重试且 2 次恢复，总 Token 221726。DeepSeek 一次 60 秒超时后恢复；Qwen 的 `insufficient_cash` 具体反馈促成修正动作。摘要/hash、Probe 绑定、52 份原始交换和敏感信息检查通过；未启动正式比赛 |
+| 2026-08-22 | 经产品负责人明确授权，执行 `bounded-retry-v2` 的 `run-002` 五请求 Probe：五家 5/5，均首次返回可执行移动动作；总 Token 8227，usage 缺失 0、revision mismatch 0，最慢 DeepSeek 6972.211 ms。摘要/hash/敏感信息检查通过；旧 Stability 因指纹和 Probe hash 不匹配被拒绝，未启动 Stability 或正式比赛 |
 | 2026-08-22 | `bounded-retry-v1` 的 `run-002` Probe 5/5；十步 Stability 仅 3/5：Anthropic/DeepSeek/Kimi 通过，OpenAI 2/10 后连续超时，Qwen 1/10 后 `invalid_action_loop`；全场 41 请求、33 有效动作、6 失败、6 重试、3 恢复，正式比赛未启动。原始交换确认 Qwen 两次 `quantity: 0` 以及 v1 漏记 7098 Token |
 | 2026-08-22 | 产品负责人授权离线修复上述两项问题：恢复策略升级为 `bounded-retry-v2`，提供脱敏具体修复反馈，并在 HTTP 200 动作失败时保留 usage/revision/latency；三类 Adapter 版本同步提升。Core 94/94、Web 11/11、typecheck、Node 24 双视口 Fixture 14/14 和 diff 检查通过；v1 Probe/Stability 降为诊断证据，须建立新基线后重新 Probe |
 | 2026-08-22 | 产品负责人确认完成率改版：五家 effort 降至 `low`，引入 `bounded-history-v1`、固定 120 秒逻辑预算内的 `bounded-retry-v1` 和十步 Stability 门禁；Probe/model-call/Replay/Report 升级为 v3/v2/v4/v5。Core 92/92、Web 11/11、typecheck 与 Node 24 双视口 Fixture 14/14 已通过，未调用在线 Provider；新策略金样重置为 0/3 |

@@ -6,7 +6,7 @@
 
 北京浮生记 Arena 是一个 Direct Model 娱乐化 Benchmark：模型通过统一事实环境独立完成 40 天交易游戏，Runner 产出可审计 Replay、Trace、运行报告和单文件离线页面。
 
-- **当前源码事实**：五模型 Direct Runner 已采用最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2`、Probe → 十步 Stability → Match 门禁、`arena-schema-v4` Replay/Web 和 Report v5；最近一次 v1 Stability 仅 3/5，升级契约后须从 Probe 重新验收。
+- **当前源码事实**：五模型 Direct Runner 已采用最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2`、Probe → 十步 Stability → Match 门禁、`arena-schema-v4` Replay/Web 和 Report v5；新版 Probe 与十步 Stability 均已 5/5 通过，正式比赛须另行授权。
 - **待验收目标**：执行真实五 Provider Probe、至少 3 场新版 Direct 金样，并为每场保存正式自动浏览器报告；完成前不能称完整 P0 已验收。
 - **历史证据**：2026-08-21 的 `run-001` 固定为四槽 v2，不计新版金样，也不回填。
 - **P0.5**：独立 Replay Enrichment，默认使用与五个 Runner 配置分离的第六模型配置。

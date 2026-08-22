@@ -1,6 +1,6 @@
 # Direct Arena 运行说明
 
-> 当前状态（2026-08-22）：五模型 Runner 已切换到最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2` 和 Probe → 十步 Stability → Match 门禁；Replay/Report 为 v4/v5。最近一次真实 Probe 5/5，随后 Stability 仅 Anthropic、DeepSeek、Kimi 通过；OpenAI 连续超时，Qwen 连续输出不可执行动作。恢复与 Adapter 契约升级后，该轮门禁只作诊断，新版真实金样仍为 `0/3`。
+> 当前状态（2026-08-22）：五模型 Runner 已切换到最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2` 和 Probe → 十步 Stability → Match 门禁；Replay/Report 为 v4/v5。新版五请求 Probe 与十步 Stability 均已 5/5 通过；Stability 的一次 DeepSeek 超时和一次 Qwen 环境无效动作均由审计重试恢复。正式比赛仍须单独授权，真实金样为 `0/3`。
 
 ## 五模型 Direct 契约
 
@@ -236,7 +236,7 @@ git diff --check
 
 测试覆盖五 Fake Provider Probe + Stability + Match、有界上下文、动作修复、超时恢复、重试耗尽、不可重试 `context_limit`、账本对账、故障隔离、轮换、诊断脱敏、v4 失败关闭、Replay 重建确定性、敏感信息扫描和上述双视口浏览器检查。Fake Provider/Fake Fetch 与浏览器 Fixture 通过不代表真实账户、模型 ID、配额或端点在线可用。
 
-新策略真实金样仍为 `0/3`。标准 `run-002` 目录中的 Probe 5/5 与 Stability 3/5 使用 `bounded-retry-v1` 和旧 Adapter 指纹；契约已升级为 v2，因此二者均只作诊断，不能越过新门禁。完整事实见 [`run-002` 诊断记录](arena-direct-acceptance-run-002.md)。下一次付费 Probe 必须另行取得产品负责人授权，Probe 通过后仍需单独授权 Stability。
+新策略真实金样仍为 `0/3`。标准 `run-002` 目录中的 `bounded-retry-v2` Probe 与 Stability 已分别 5/5 通过，二者配置指纹、Probe hash 和策略版本匹配；完整事实见 [`run-002` 诊断记录](arena-direct-acceptance-run-002.md)。门禁已经具备启动正式比赛的条件，但必须另行取得产品负责人明确授权。
 
 ## Replay Enrichment 与 legacy 边界
 
