@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；待办 2 已建立 Playwright/Chromium 自动浏览器框架。`run-002` 已完成真实五 Provider Probe、正式比赛和双视口 14/14 报告，工程侧建议作为新版金样候选 1/3，待产品负责人确认；详细事实见 [`run-002` 工程验收记录](docs/arena-direct-acceptance-run-002.md)。`run-003`、`run-004` 尚未执行，因此当前不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
+当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v1` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 已升级为 v4/v5。新版真实金样当前仍为 `0/3`：此前 `run-002` 运行均属于旧策略诊断证据，标准 `run-002` 目录尚无新策略正式比赛产物。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 
@@ -13,15 +13,16 @@
 ```text
 五组不可重复的 Provider + Model 配置
 → 五次 Provider Probe 与脱敏摘要
+→ 每家连续完成 10 个有效动作的 Stability Probe
 → 五模型 Direct 真实比赛
-→ probe-summary.json / replay.json / episode-traces.json / run-report.json
+→ probe-summary.json / stability-summary.json / replay.json / episode-traces.json / run-report.json
 → 自动生成单文件 replay.html
 → 第 1～40 天事实回放
 ```
 
 P0 至少完成 3 场新版五模型 Direct 比赛。游戏内死亡、破产或技术 DNF 都可以是如实记录的比赛结果，不要求五个 Agent 都存活到第 40 天；未解释的中断不能作为通过。五个参赛组合必须各自配置，且归一化后的 `Provider + Model` 组合不能重复。slot 采用 `cyclic-v1`，由 `ARENA_SLOT_ROTATION_INDEX=0..4` 配置轮换。
 
-Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `full-history-v1`。每次请求包含固定系统指令、当前 Observation，以及本局此前全部 action、result、effects 和 state diff；不发送旧 Observation、不摘要、不截断，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。公共市场共享 seed，个人随机事件按 slot 隔离。技术 DNF 只影响对应 Agent，其他 Agent 继续。正式 UI 只显示 `Provider + Model`，Day 40 只展示正式排名、DNF 与个人随机事件原始计数。
+Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `bounded-history-v1`。每次请求包含当前完整 Observation、最近 5 天确定性摘要、最近 8 条完整动作事实和更早历史的确定性聚合；不按 Provider 差异化裁剪，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。`bounded-retry-v1` 在固定 120 秒逻辑决策预算内最多尝试 3 次，记录所有失败、重试和恢复；`context_limit`、鉴权/额度及其他不可重试错误直接技术 DNF。公共市场共享 seed，个人随机事件按 slot 隔离。
 
 Arena 工具链要求 Node.js 22.18 或更高版本；Playwright 浏览器验收固定使用其当前支持的 Node 22/24/26。离线测试使用 Fake Provider/Fake Fetch；Fixture 浏览器测试通过不等于真实 Provider 已在线验收。
 
@@ -51,14 +52,17 @@ npm run arena:direct -- --check-config
 # 恰好并行请求 A...E 各一次，并原子写入指定目录的 probe-summary.json
 npm run arena:direct -- --output-dir <new-output-directory> --probe-providers
 
-# 同目录存在配置匹配、全部通过的最新 Probe 摘要后，显式启动比赛
+# Probe 通过后，每家并行运行 10 个顺序有效动作并写 stability-summary.json
+npm run arena:direct -- --output-dir <same-output-directory> --stability-probe
+
+# 同目录 Probe 与 Stability 均匹配且通过后，显式启动比赛
 npm run arena:direct -- --output-dir <same-output-directory> --confirm-live-run
 
-# 只从五模型 arena-schema-v3 Replay 重建 HTML，不再次调用模型
+# 只从五模型 arena-schema-v4 Replay 重建 HTML，不再次调用模型
 npm run arena:replay -- --input <replay.json>
 ```
 
-正式比赛会持续输出以 `[arena-progress] ` 开头的 `arena-live-progress-v1` JSONL，只包含 Agent、Provider/model、Day、动作类型、请求/Token、延迟和结构化故障域；不输出凭据、Prompt、完整历史或响应正文。需要诊断上游正文时可在本机显式开启 `ARENA_SAVE_RAW_EXCHANGES=true`，其产物只写入被 Git 排除的 `dist/arena-diagnostics/`，不得对外粘贴。
+Stability Probe 与正式比赛会持续输出以 `[arena-progress] ` 开头的 `arena-live-progress-v1` JSONL，只包含 Agent、Provider/model、Day、尝试序号、重试类别、动作类型、请求/Token、延迟和结构化故障域；不输出凭据、Prompt、上下文或响应正文。需要诊断上游正文时可在本机显式开启 `ARENA_SAVE_RAW_EXCHANGES=true`，其产物只写入被 Git 排除的 `dist/arena-diagnostics/<matchId>/{probe,stability,match}/`，不得对外粘贴。
 
 Direct Runner 默认读取仓库根目录的本地 `.env`，使用 `ARENA_AGENT_A...E_*` 五组本地配置；A–E 只是配置入口，不是公开身份。每组必须显式配置 `REASONING_EFFORT`，可声明 `MODEL_REVISION`；DeepSeek 另有独立 `THINKING` 开关。全场可覆盖总墙钟、轮换和输出预算。Probe 摘要的配置指纹包含 thinking 与 reasoning effort，但不包含 API Key 或其 hash，因此只更换 API Key 无法由门禁识别，需由操作者主动重新 Probe。完整 Provider 协议、审计、诊断和恢复构建边界见 [Direct Arena 运行说明](docs/arena-direct.md)。
 
@@ -72,7 +76,7 @@ Scripted 模式只保留为内部确定性回归工具，不属于产品范围�
 
 已完成一次四 Provider Probe 和一次真实受控展示赛：四个槽位均实际收到请求；OpenAI、Anthropic 和 DeepSeek 得到有效比赛结果，Kimi 在 Day 1 超时后仅对应槽位技术 DNF，其他三局继续结算。Replay、Trace、运行报告和离线 HTML 均已生成并完成 Day 1/39/40 浏览器验收。该结论是四槽历史基线，只对应本次具名配置与本地产物，不满足修订后的五模型 P0，也不表示未来凭据、模型或网关无需重新 Probe。完整数字、hash、浏览器证据和已知延迟统计限制见 [2026-08-21 真实验收记录](docs/arena-direct-acceptance-2026-08-21.md)。
 
-正式页面没有模拟 fallback；缺少或无法验证五模型 `arena-schema-v3` Replay 时会直接停止展示。新版正式构建器与浏览器验收入口都拒绝 v2、四模型 Replay 和已知 Fake/Fixture/Scripted 测试标记；历史 `run-001` 的 JSON、hash、报告和 HTML 保持原样。自动验收固定覆盖 Day 1/39/40、防剧透、技术 DNF、hash、失败关闭、`file://` 断网、控制台、键盘、焦点和 1366×768/1920×1080 布局；正式模式还会重复构建 HTML 并核对同目录产物。Fixture 通过不替代三场真实金样报告。历史边界见 [Direct-only Arena v0 说明](docs/arena-v0.md)。下一交付目标仅限本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。
+正式页面没有模拟 fallback；缺少或无法验证五模型 `arena-schema-v4` Replay 时会直接停止展示。正式构建器与浏览器验收入口拒绝旧 schema、四模型 Replay 和已知 Fake/Fixture/Scripted 测试标记；历史产物保持原样但不能冒充新策略金样。自动验收固定覆盖 Day 1/39/40、防剧透、技术 DNF、hash、失败关闭、`file://` 断网、控制台、键盘、焦点和 1366×768/1920×1080 布局。Fixture 通过不替代三场真实金样报告。
 
 ## Legacy OpenClaw / MCP（非当前 Direct P0）
 

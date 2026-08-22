@@ -1,6 +1,6 @@
 import type { StateDiff } from "./state-diff.js";
 
-export const ARENA_SCHEMA_VERSION = "arena-schema-v3" as const;
+export const ARENA_SCHEMA_VERSION = "arena-schema-v4" as const;
 export const RULESET_VERSION = "fushengji-rules-v1" as const;
 export const TOOL_SCHEMA_VERSION = "arena-tools-v1" as const;
 export const SETTLEMENT_RULE_VERSION = "public-reference-v1" as const;
@@ -351,7 +351,8 @@ export interface CompetitionAudit {
   readonly decisionPolicyId: string;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
-  readonly contextPolicyVersion: "full-history-v1";
+  readonly contextPolicyVersion: "bounded-history-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v1";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly publicRandomization: "shared-seed";
   readonly personalRandomization: "slot-isolated";
@@ -366,9 +367,13 @@ export interface CompetitionAudit {
   };
   readonly maxActionsPerAgent: number;
   readonly decisionTimeoutMs: number;
+  readonly attemptTimeoutMs: number;
   readonly totalWallClockMsPerAgent: number;
   readonly maxOutputTokensPerRequest: number;
-  readonly automaticRetries: 0;
+  readonly maxAttemptsPerDecision: 3;
+  readonly maxRepairRetriesPerDecision: 2;
+  readonly maxTransientRetriesPerDecision: 1;
+  readonly automaticRetries: 2;
 }
 
 export interface AgentPersonalRandomEventSummary {

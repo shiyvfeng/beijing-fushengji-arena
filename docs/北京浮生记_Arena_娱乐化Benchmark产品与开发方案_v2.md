@@ -2,6 +2,8 @@
 
 > 修订说明（2026-08-22）：本版重新冻结 P0 为五个不同 `Provider + model` 的五模型同场 Direct Benchmark。P0 Runner 只生成事实性 Replay、Trace 与 Run Report；程序化高光、采访、奖项、结局和娱乐解说统一移入 P0.5 的独立 Replay Enrichment。strict MCP 移入 P1；Scripted 不再属于产品范围或验收，只保留为内部确定性回归工具。文件名暂保留 `v2`，正文版本以 v2.2 为准。
 
+> 完成率修订（2026-08-22）：真实诊断表明最高 reasoning effort、全历史和零恢复无法在可接受时间内稳定完成比赛。P0 现冻结为五家最低非关闭 `low`、`bounded-history-v1`、固定逻辑预算内的 `bounded-retry-v1`，并在正式比赛前增加五家各 10 个有效动作的 Stability 门禁。策略改变后旧真实样本只作诊断，三场计数重新开始。
+
 已确认且后续默认不再反复讨论的产品决策：
 
 - 页面永远只有一套公开观众视图，任何人拿到 Replay 都可以逐日查看；
@@ -260,7 +262,7 @@ Replay 可以同时展示净资产数值和正式名次，不能用一个看似�
 每场 Match 固定：
 
 - 每个 Agent 的最大决策调用数、最大工具动作数、单次输出上限和总墙钟上限；
-- Probe 和正式决策默认零自动重试；若未来增加重试，必须对五个 Agent 使用相同、版本化且可审计的策略；
+- Provider Probe 每家恰好一次且零重试；Stability 与正式决策统一使用 `bounded-retry-v1`，重试不得延长单个逻辑决策或总墙钟；
 - 超出上下文下限的模型不得临时获得删减版 Observation；
 - 传输失败且未产生模型结果时不扣工具预算，模型生成的无效 Action 计入可靠性指标；
 - 并发只用于缩短后台运行时间，不能通过共享会话、共享缓存或调用顺序让 Agent 相互影响。
@@ -422,24 +424,28 @@ P0 必须记录以上指标所需数据；多 seed 榜单、五维雷达图与�
 
 ## 6.4 历史上下文管理契约
 
-所有参赛 Agent 必须使用同一种、可审计的上下文管理策略。P0 冻结为 `full-history-v1`：
+所有参赛 Agent 必须使用同一种、可审计的上下文管理策略。P0 冻结为 `bounded-history-v1`：
 
 ```text
 固定系统 Prompt
 + 当前一次无身份 Observation
-+ 本局此前全部 action、result、effects 和 state diff
++ 最近 5 天的确定性事实摘要
++ 最近 8 条完整 action、result、effects 和 state diff
++ 更早历史的确定性计数与事件聚合
++ 当前重试的结构化失败反馈（仅在重试时）
 ```
 
 要求如下：
 
-- 不发送旧 Observation 快照，不生成历史摘要，不截断历史，也不只保留最近 N 次；
-- 不根据不同模型的上下文窗口做差异化裁剪、压缩或补充；
+- 不发送旧 Observation 快照；摘要由 Runner 纯函数生成，不调用模型；
+- 最近天数、完整动作数和更早聚合字段固定，不根据模型上下文窗口做差异化裁剪、压缩或补充；
 - 五个 Direct Agent 使用逐字节一致的 Observation Schema 和序列化策略；
 - 不加载跨局经验、个人记忆或 `game_records`；
 - Provider、model、slot、其他参赛者、排名、审计 ID 和 Enrichment 信息不得进入模型上下文；
-- 每次实际发送给模型的完整上下文保存 hash，hash 必须覆盖系统指令、当前 Observation 和本局此前全部动作事实；
-- Provider 明确返回上下文超限时记录为 `runtime_error + context_limit` 技术 DNF，零重试、零压缩，其余 Agent 继续；
-- Run Report 记录 model revision、sampling parameters、总墙钟、请求与 action 的逐条关联、故障责任归属以及输入/输出 Token；
+- 每次实际发送给模型的完整上下文保存 hash，hash 必须覆盖系统指令和整个有界用户上下文；
+- Provider 明确返回上下文超限时记录为 `runtime_error + context_limit` 技术 DNF，不重试也不临时改变窗口，其余 Agent 继续；
+- 每个逻辑决策总预算固定为 120 秒，单次尝试最多 60 秒，总共最多 3 次；`invalid_response`/`invalid_action` 最多修复 2 次，timeout/transport/HTTP 408、429、5xx 最多瞬态重试 1 次；
+- Run Report 记录 attempt、retry reason、recovered decision、model revision、sampling parameters、总墙钟、请求与 action/retry/termination 的逐条关联、故障责任归属以及输入/输出 Token；
 - 每场 Match 必须创建全新 session，任何前轮 Runner 或 Replay Enrichment 的结果、采访和叙事均不得进入下一轮上下文；
 - 原始请求/响应正文仅在显式诊断开关开启时保存，并遵守 §19.3 的独立目录与脱敏规则。
 
@@ -1437,7 +1443,7 @@ P0 Web 是只读、离线优先的单页应用：
 - Replay 校验失败时停止展示并给出明确错误；
 - P0 不需要数据库、账号系统或服务端渲染。
 
-Direct Model 的 API Key 只从环境变量或本机密钥存储读取，不写入 MatchConfig、日志、Replay 或前端包。正式验收必须保存脱敏的 Provider Probe 结果摘要。Probe 与正式比赛的原始请求/响应由同一个显式诊断开关控制，代码和 `.env.example` 默认关闭，只有操作者在本地明确启用时才写入独立、Git 忽略的诊断目录；实现过程不得修改真实 `.env`。诊断需移除 Authorization、API Key、Cookie、Bearer 和嵌套凭据字段，同时保留其他诊断所需的请求/响应正文。当前本地开发不做自动清理；Replay 仍只保存结构化事实，原始交换不属于 Replay hash。
+Direct Model 的 API Key 只从环境变量或本机密钥存储读取，不写入 MatchConfig、日志、Replay 或前端包。正式验收必须保存脱敏的 Provider Probe 与 Stability 结果摘要。Probe、Stability 与正式比赛的原始请求/响应由同一个显式诊断开关控制，代码和 `.env.example` 默认关闭，只有操作者在本地明确启用时才写入独立、Git 忽略的诊断目录；除产品负责人明确授权的非密钥字段外，不修改真实 `.env`。诊断需移除 Authorization、API Key、Cookie、Bearer 和嵌套凭据字段，同时保留其他诊断所需的请求/响应正文。当前本地开发不做自动清理；Replay 仍只保存结构化事实，原始交换不属于 Replay hash。
 
 ## 19.4 建议目录
 
@@ -1750,6 +1756,8 @@ P0 Runner 流程：
     ↓
 并行执行五次 Provider Probe，保存脱敏摘要
     ↓
+五家并行，各自顺序完成 10 个有效动作，保存 Stability 摘要
+    ↓
 加载 scenario 与随机流
     ↓
 为五个 Agent 创建独立 episode
@@ -1853,9 +1861,11 @@ P0.5 的程序化加工、通用第六模型、选手原模型采访或解说失
 | Direct-only 契约 | 五个 Direct Agent 共用 Observation、Action、校验器、事件日志和版本化中性 Prompt |
 | 五模型 Match Runner | 一条命令以同一 scenario、seed 和预算运行 5 个独立 Agent；五组 `Provider + model` 不得重复 |
 | Provider Probe | 正式比赛前并行请求五组配置，严格验证 Action 并保存脱敏 Probe 摘要 |
+| Stability Probe | Probe 通过后，五家并行且各自顺序完成 10 个有效动作；保存请求、重试、恢复、Token、延迟和故障摘要 |
 | 结构化日志 | action、before、after、diff、随机流来源、完整上下文 hash、模型调用与证据 ID |
-| 上下文契约 | `full-history-v1`：当前无身份 Observation + 本局此前全部 action/result/effects/state diff；不摘要、不截断，禁止跨局记录 |
-| 运行审计 | model revision、sampling、总墙钟、请求-action 关联、故障归属、输入/输出 Token 和延迟；不估算金额 |
+| 上下文契约 | `bounded-history-v1`：当前完整无身份 Observation + 最近 5 天摘要 + 最近 8 条完整动作 + 更早历史确定性聚合；禁止差异化裁剪和跨局记录 |
+| 恢复契约 | `bounded-retry-v1`：固定逻辑预算内最多 3 次尝试，区分修复/瞬态/不可重试故障，所有失败与恢复可审计 |
+| 运行审计 | model revision、sampling、总墙钟、请求-action/retry/termination 关联、故障归属、输入/输出 Token 和延迟；不估算金额 |
 | Replay | 生成、校验并 hash 只含结构化事实的 `replay.json`，不混入叙事字段 |
 | 单一观众看板 | 第 1～40 天日期游标、五模型状态、完整动作、排名、曲线、事件、DNF 与核心终局 |
 | 离线交付 | 同时输出 `replay.json` 与可双击打开的自包含 `replay.html`，断网完整可用 |
@@ -1936,19 +1946,20 @@ Agent 间直接交互和共享市场不得进入 P0。公开发布、公开榜�
 3. 五个 Probe 并行各请求一次，无自动重试且全部尝试；
 4. 严格解析并在独立初始环境执行一次 `GameAction`；
 5. 正式验收保存脱敏 Probe 摘要；
-6. 原始交换由开关写入独立 Git 忽略目录，代码和 `.env.example` 默认关闭；实现过程不修改真实本地 `.env`。
+6. 原始交换由开关写入独立 Git 忽略目录，代码和 `.env.example` 默认关闭；只在产品负责人明确授权时修改真实本地 `.env` 的非密钥字段。
 
-交付标准：Probe 不启动比赛、不写比赛产物；五家全部通过后才允许显式开始正式比赛。
+交付标准：Probe 不启动比赛、不写比赛产物；五家全部通过后才能执行十步 Stability，Stability 五家全部通过后才允许显式开始正式比赛。
 
 ## 阶段 3：五模型 Match Runner 与完整审计
 
 1. 创建五个隔离 episode；
 2. 实现受控并发、统一决策/动作/输出预算、单次超时、总墙钟和错误隔离；
-3. 实现 `full-history-v1` 全历史上下文和覆盖实际完整发送内容的上下文 hash；
-4. 记录 model revision、sampling parameters、输入/输出 Token 和延迟；
-5. 建立每个请求与 action 的逐条关联；
-6. 区分平台、Provider、模型、协议和 Runner 故障归属；
-7. 实现可配置、版本化 slot 轮换。
+3. 实现 `bounded-history-v1` 有界上下文、确定性聚合和覆盖实际完整发送内容的上下文 hash；
+4. 实现固定逻辑预算内的 `bounded-retry-v1`，记录错误、重试和恢复；
+5. 记录 model revision、sampling parameters、输入/输出 Token 和延迟；
+6. 建立每个请求与 action、retry 或 termination 的逐条关联；
+7. 区分平台、Provider、模型、协议和 Runner 故障归属；
+8. 实现可配置、版本化 slot 轮换。
 
 交付标准：一条命令完成五模型 Direct 比赛；任意一个 Agent DNF 时，其余 Agent 继续，报告如实记录且不伪装为正常名次。
 
@@ -1976,11 +1987,11 @@ Agent 间直接交互和共享市场不得进入 P0。公开发布、公开榜�
 
 ## 阶段 6：P0 真实验收
 
-1. 每场先完成五 Provider Probe 并保存脱敏摘要；
+1. 每场先完成五 Provider Probe，再完成五家各 10 个有效动作的 Stability Probe，并保存两份脱敏摘要；
 2. 使用 Direct 模式完成至少 3 场五模型真实样例；
 3. 每场产出 Replay、Trace、Run Report 和单文件 HTML；
 4. 执行 §25 全量自动化测试和可重复浏览器验收；
-5. 审查完整上下文 hash、request-action 关联、Token、延迟、故障归属和原始交换脱敏；
+5. 审查完整上下文 hash、request-action/retry/termination 关联、错误/重试/恢复次数、Token、延迟、故障归属和原始交换脱敏；
 6. 如实接受游戏内死亡和技术 DNF，不把“零 DNF”或“全员活到 Day 40”设为硬门槛；任何异常必须留有足够事实供人工判断。
 
 交付标准：至少 3 场真实 Direct 金样满足 §26；不需要 Scripted 金样或 strict MCP episode。
@@ -2020,6 +2031,8 @@ strict MCP Adapter、外部 Host episode 和 MCP Host 编排必须在 P0/P0.5 �
 - 五个 Agent 使用相同中性 Prompt hash、Observation Schema、初始事实、动作预算、超时和输出上限；
 - Probe 每组恰好一次请求、无自动重试、失败后仍尝试其余配置；
 - Probe 不运行完整比赛，不创建 Replay、Trace 或 Run Report；
+- Stability 必须消费匹配且全通过的 Probe；五家各顺序完成 10 个有效动作，任一家失败都阻止正式比赛；
+- 修复重试、瞬态重试、不可重试错误和固定逻辑预算均有契约测试，失败请求与恢复决策可逐条对账；
 - 三类 Provider 协议的 JSON mode、Token 参数、usage 归一化和脱敏错误均有契约测试；
 - 单 Provider 故障只使对应 Agent 技术 DNF，其余四个 episode 继续；
 - slot 轮换关闭时映射稳定，开启时按版本化配置轮换且不改变公共事实。

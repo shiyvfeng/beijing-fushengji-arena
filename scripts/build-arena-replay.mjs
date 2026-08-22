@@ -82,7 +82,7 @@ function normalizedProviderIdentity(value) {
 
 function validateReplay(value, allowInternalScripted) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Replay JSON 顶层必须是对象");
-  if (value.schemaVersion !== "arena-schema-v3") throw new Error("正式构建器只支持 arena-schema-v3 Replay");
+  if (value.schemaVersion !== "arena-schema-v4") throw new Error("正式构建器只支持 arena-schema-v4 Replay");
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.replayHash ?? "")) throw new Error("Replay hash 无效");
   if (!/^sha256:[0-9a-f]{64}$/u.test(value.factHash ?? "")) throw new Error("Replay fact hash 无效");
   const isInternalScripted = allowInternalScripted && value?.metadata?.executionMode === "scripted";

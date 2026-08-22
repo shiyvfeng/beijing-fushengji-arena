@@ -164,7 +164,7 @@ test("sample runner emits four 40-day traces and a stable recoverable replay", a
   assert.ok(first.replay.eventHash.startsWith("sha256:"));
   assert.ok(first.replay.factHash.startsWith("sha256:"));
   assert.equal(first.replay.competitionAudit, undefined);
-  assert.equal(first.replay.schemaVersion, "arena-schema-v3");
+  assert.equal(first.replay.schemaVersion, "arena-schema-v4");
   assert.equal(first.replay.personalRandomEventAudit.basis, "personal-event-count-v1");
   assert.equal(first.replay.personalRandomEventAudit.revealDay, 40);
   assert.equal(first.replay.personalRandomEventAudit.agents.length, 4);

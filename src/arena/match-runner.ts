@@ -14,6 +14,12 @@ import {
   type EpisodeRunReport,
 } from "./episode-runner.js";
 import { createSampleScriptedDrivers } from "./scripted-driver.js";
+import {
+  directAttemptTimeoutMs,
+  DIRECT_MAX_ATTEMPTS_PER_DECISION,
+  DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
+  DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
+} from "./direct-context.js";
 
 export interface MatchRunConfig {
   readonly matchId: string;
@@ -128,6 +134,7 @@ function competitionAuditFor(
     && profile.decisionPolicyHash === first.decisionPolicyHash
     && profile.modelObservationVersion === first.modelObservationVersion
     && profile.contextPolicyVersion === first.contextPolicyVersion
+    && profile.recoveryPolicyVersion === first.recoveryPolicyVersion
     && profile.samplingPolicyVersion === first.samplingPolicyVersion
     && profile.maxOutputTokensPerRequest === first.maxOutputTokensPerRequest)) {
     throw new Error("Direct Match 的五个 Agent 必须共享同一决策、上下文、采样策略和输出上限");
@@ -152,6 +159,7 @@ function competitionAuditFor(
     decisionPolicyHash: first.decisionPolicyHash,
     modelObservationVersion: first.modelObservationVersion,
     contextPolicyVersion: first.contextPolicyVersion,
+    recoveryPolicyVersion: first.recoveryPolicyVersion,
     samplingPolicyVersion: first.samplingPolicyVersion,
     publicRandomization: "shared-seed",
     personalRandomization: "slot-isolated",
@@ -162,9 +170,13 @@ function competitionAuditFor(
     }),
     maxActionsPerAgent: maxActions,
     decisionTimeoutMs,
+    attemptTimeoutMs: directAttemptTimeoutMs(decisionTimeoutMs),
     totalWallClockMsPerAgent: totalWallClockMs,
     maxOutputTokensPerRequest: first.maxOutputTokensPerRequest,
-    automaticRetries: 0,
+    maxAttemptsPerDecision: DIRECT_MAX_ATTEMPTS_PER_DECISION,
+    maxRepairRetriesPerDecision: DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
+    maxTransientRetriesPerDecision: DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
+    automaticRetries: 2,
   });
 }
 
@@ -172,7 +184,7 @@ function limitationsFor(executionMode: ArenaExecutionMode): readonly string[] {
   if (executionMode === "direct") {
     return Object.freeze([
       "本次对局经 DirectModelDriver 请求已配置的 Provider Adapter；Runner 不推断 Adapter 是在线模型还是测试替身。",
-      "五个参赛者使用同一 neutral-v1 决策策略、full-history-v1 上下文与无身份模型观察；Provider、模型、slot 和审计 ID 不进入模型上下文。",
+      "五个参赛者使用同一 neutral-v1 决策策略、bounded-history-v1 上下文、bounded-retry-v1 恢复策略与无身份模型观察；Provider、模型、slot 和审计 ID 不进入模型上下文。",
       "公共随机流共享 seed，个人随机事件按 cyclic-v1 轮换后的 slot 隔离，因此本场属于受控五模型展示赛。",
       "Provider/模型标识进入可验证 Replay；密钥、原始交换和系统指令正文不进入 Trace/Replay。",
       "采访、导演高光、奖项、结局和 MCP Host 不属于当前 Direct-only Arena 验收范围。",

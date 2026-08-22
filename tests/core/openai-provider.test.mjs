@@ -27,6 +27,9 @@ function createDecisionInput(signal = new AbortController().signal) {
     actionIndex: 1,
     history: [{
       actionIndex: 0,
+      attemptIndex: 0,
+      dayBefore: previous.before.day,
+      dayAfter: previous.after.day,
       action: previous.event.action,
       result: {
         success: previous.success,
@@ -116,9 +119,12 @@ test("OpenAI provider sends a strict Responses request and returns a minimal Gam
   assert.equal("agentSlot" in userContext.observation, false);
   assert.equal("episodeId" in userContext.observation, false);
   assert.equal("observationHash" in userContext.observation, false);
+  assert.equal(userContext.contextPolicyVersion, "bounded-history-v1");
+  assert.equal(userContext.recoveryPolicyVersion, "bounded-retry-v1");
+  assert.equal(userContext.olderHistorySummary.totalAttempts, 0);
   assert.deepEqual(
-    Object.keys(userContext.history[0]).sort(),
-    ["action", "actionIndex", "result", "stateDiff"],
+    Object.keys(userContext.recentActions[0]).sort(),
+    ["action", "actionIndex", "attemptIndex", "dayAfter", "dayBefore", "result", "stateDiff"],
   );
   assert.equal(JSON.stringify(body).includes(TEST_API_KEY), false);
 });

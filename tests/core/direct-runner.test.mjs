@@ -11,6 +11,7 @@ import {
 } from "../../dist/arena/direct-driver.js";
 import { DirectProviderRequestError } from "../../dist/arena/agent-driver.js";
 import { runMatch } from "../../dist/arena/match-runner.js";
+import { runEpisode } from "../../dist/arena/episode-runner.js";
 import { assembleMatchReplay } from "../../dist/arena/replay.js";
 import { buildDirectRunReport } from "../../dist/arena/run-report.js";
 import { ScriptedDriver, createSampleScriptedDrivers } from "../../dist/arena/scripted-driver.js";
@@ -20,6 +21,7 @@ import { integrityHash } from "../../dist/core/stable-value.js";
 
 const SPECS = Array.from({ length: 5 }, (_, index) => `competitor-${index + 1}`);
 const PROBE_HASH = `sha256:${"1".repeat(64)}`;
+const STABILITY_HASH = `sha256:${"2".repeat(64)}`;
 
 function reportOptions(matchId, decisionTimeoutMs = 1_000, totalWallClockMs = 160_000) {
   return {
@@ -31,6 +33,8 @@ function reportOptions(matchId, decisionTimeoutMs = 1_000, totalWallClockMs = 16
     maxOutputTokens: 128,
     probeSummaryHash: PROBE_HASH,
     probeCreatedAt: "2026-08-22T00:00:00.000Z",
+    stabilitySummaryHash: STABILITY_HASH,
+    stabilityCreatedAt: "2026-08-22T00:10:00.000Z",
   };
 }
 
@@ -64,6 +68,8 @@ function fakeProvider(entryIndex, {
       captures.push(structuredClone({
         observation: input.observation,
         actionIndex: input.actionIndex,
+        attemptIndex: input.attemptIndex,
+        retryFeedback: input.retryFeedback,
         history: input.history,
         systemInstruction: input.systemInstruction,
         userContext: input.userContext,
@@ -132,7 +138,7 @@ test("Direct action parser accepts exact schemas and rejects dirty provider outp
   }
 });
 
-test("five Direct models use full-history-v1 and produce one-to-one request evidence", async () => {
+test("five Direct models use bounded-history-v1 and produce one-to-one request evidence", async () => {
   const { drivers, captures } = directDrivers({ omitUsageEntry: 4 });
   const progress = [];
   let reporterFailureInjected = false;
@@ -157,11 +163,15 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
   assert.equal(output.report.executionMode, "direct");
   assert.equal(output.traces.length, 5);
   assert.ok(output.traces.every(trace => trace.finalResult.status === "completed"));
-  assert.equal(output.replay.schemaVersion, "arena-schema-v3");
+  assert.equal(output.replay.schemaVersion, "arena-schema-v4");
   assert.equal(output.replay.metadata.title, "北京浮生记 · 受控五模型展示赛");
   assert.equal(output.replay.competitionAudit.decisionPolicyId, DIRECT_DECISION_POLICY_ID);
   assert.equal(output.replay.competitionAudit.decisionPolicyHash, DIRECT_DECISION_POLICY_HASH);
   assert.equal(output.replay.competitionAudit.contextPolicyVersion, DIRECT_CONTEXT_POLICY_VERSION);
+  assert.equal(output.replay.competitionAudit.recoveryPolicyVersion, "bounded-retry-v1");
+  assert.equal(output.replay.competitionAudit.attemptTimeoutMs, 500);
+  assert.equal(output.replay.competitionAudit.maxAttemptsPerDecision, 3);
+  assert.equal(output.replay.competitionAudit.automaticRetries, 2);
   assert.equal(output.replay.competitionAudit.samplingPolicyVersion, "provider-explicit-effort-audited-v2");
   assert.equal(output.replay.competitionAudit.slotRotation.version, "cyclic-v1");
   assert.equal(output.replay.competitionAudit.totalWallClockMsPerAgent, 160_000);
@@ -176,8 +186,15 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
     assert.equal(entries[0].systemInstruction, DIRECT_SYSTEM_INSTRUCTION);
     const sixth = entries[5];
     assert.equal(sixth.history.length, 5);
-    assert.equal(JSON.parse(sixth.userContext).history.length, 5);
-    assert.equal(JSON.parse(sixth.userContext).contextPolicyVersion, "full-history-v1");
+    const sixthContext = JSON.parse(sixth.userContext);
+    assert.equal(sixthContext.recentActions.length, 5);
+    assert.equal(sixthContext.olderHistorySummary.successfulActions, 0);
+    assert.equal(sixthContext.contextPolicyVersion, "bounded-history-v1");
+    assert.equal(sixthContext.recoveryPolicyVersion, "bounded-retry-v1");
+    const finalContext = JSON.parse(entries.at(-1).userContext);
+    assert.ok(finalContext.recentActions.length <= 8);
+    assert.ok(finalContext.recentDaySummaries.length <= 5);
+    assert.equal(finalContext.olderHistorySummary.totalAttempts, entries.length - 1 - 8);
     assert.equal(
       sixth.fullContextHash,
       integrityHash({ systemInstruction: sixth.systemInstruction, userContext: sixth.userContext }),
@@ -190,8 +207,9 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
   }
 
   const report = buildDirectRunReport(reportOptions("direct-fake-complete"), output);
-  assert.equal(report.artifactType, "arena-direct-run-report-v4");
+  assert.equal(report.artifactType, "arena-direct-run-report-v5");
   assert.equal(report.probe.summaryHash, PROBE_HASH);
+  assert.equal(report.stability.summaryHash, STABILITY_HASH);
   assert.equal(report.totals.requestCount, report.totals.successfulRequests);
   assert.equal(report.totals.failedRequests, 0);
   assert.ok(report.agents.every(agent => agent.providerReasoningEffort === "max"));
@@ -231,6 +249,110 @@ test("five Direct models use full-history-v1 and produce one-to-one request evid
     assert.equal(typeof event.lastCallLatencyMs, "number");
     assert.equal(typeof event.cumulativeTotalTokens, "number");
   }
+});
+
+function retryTestDriver(requestDecision) {
+  return new DirectModelDriver({
+    id: "competitor-1",
+    slot: 0,
+    provider: {
+      providerId: "retry-provider",
+      adapterVersion: "retry-adapter-v1",
+      modelId: "retry-model",
+      maxOutputTokens: 128,
+      reasoningEffort: "low",
+      requestDecision,
+    },
+  });
+}
+
+async function runRetryEpisode(matchId, driver, decisionTimeoutMs = 1_000) {
+  return runEpisode({
+    matchId,
+    seed: 20260820,
+    scenario: DEFAULT_SCENARIO,
+    driver,
+    maxActions: 1,
+    decisionTimeoutMs,
+    totalWallClockMs: decisionTimeoutMs,
+  });
+}
+
+test("bounded-retry-v1 repairs an invalid action and records the recovered decision", async () => {
+  let requestCount = 0;
+  const capturedContexts = [];
+  const output = await runRetryEpisode("retry-invalid-action", retryTestDriver(async input => {
+    requestCount++;
+    capturedContexts.push(JSON.parse(input.userContext));
+    return {
+      action: requestCount === 1
+        ? { type: "move", locationId: 999 }
+        : { type: "move", locationId: 0 },
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+    };
+  }));
+  assert.equal(output.report.validActionCount, 1);
+  assert.equal(output.report.invalidActionCount, 1);
+  assert.equal(output.report.retryAttemptCount, 1);
+  assert.equal(output.report.recoveredDecisionCount, 1);
+  assert.equal(output.report.requestMetrics.requestCount, 2);
+  assert.equal(output.report.requestMetrics.calls[0].actionEventId !== null, true);
+  assert.equal(output.report.requestMetrics.calls[1].actionEventId !== null, true);
+  assert.equal(capturedContexts[1].retryFeedback.category, "invalid_action");
+  assert.deepEqual(capturedContexts[1].retryFeedback.rejectedAction, { type: "move", locationId: 999 });
+});
+
+test("bounded-retry-v1 retries one timed-out attempt inside the same logical deadline", async () => {
+  let requestCount = 0;
+  const startedAt = performance.now();
+  const output = await runRetryEpisode("retry-timeout", retryTestDriver(input => {
+    requestCount++;
+    if (requestCount === 1) {
+      return new Promise((_, reject) => input.signal.addEventListener(
+        "abort",
+        () => reject(input.signal.reason),
+        { once: true },
+      ));
+    }
+    return Promise.resolve({ action: { type: "move", locationId: 0 } });
+  }), 200);
+  const elapsedMs = performance.now() - startedAt;
+  assert.equal(output.report.attemptTimeoutMs, 100);
+  assert.equal(output.report.validActionCount, 1);
+  assert.equal(output.report.recoveredDecisionCount, 1);
+  assert.equal(output.report.requestMetrics.calls[0].failure.category, "timeout");
+  assert.equal(output.report.requestMetrics.calls[0].retryReason, "timeout");
+  assert.equal(output.report.requestMetrics.calls[1].attemptIndex, 1);
+  assert.ok(elapsedMs >= 90 && elapsedMs < 500, `unexpected elapsed ${elapsedMs}`);
+});
+
+test("bounded-retry-v1 exhausts repair attempts but never retries context_limit", async () => {
+  const exhausted = await runRetryEpisode("retry-exhausted", retryTestDriver(async () => {
+    throw new DirectProviderRequestError(
+      "retry-provider",
+      "invalid_response",
+      "safe invalid response",
+    );
+  }));
+  assert.equal(exhausted.trace.finalResult.technicalFailure.category, "invalid_response");
+  assert.equal(exhausted.report.requestMetrics.requestCount, 3);
+  assert.deepEqual(
+    exhausted.report.requestMetrics.calls.map(call => call.retryReason),
+    ["invalid_response", "invalid_response", null],
+  );
+  assert.equal(exhausted.report.requestMetrics.calls[2].terminationEventId !== null, true);
+
+  const contextLimit = await runRetryEpisode("retry-context-limit", retryTestDriver(async () => {
+    throw new DirectProviderRequestError(
+      "retry-provider",
+      "context_limit",
+      "safe context limit",
+      400,
+    );
+  }));
+  assert.equal(contextLimit.trace.finalResult.technicalFailure.category, "context_limit");
+  assert.equal(contextLimit.report.requestMetrics.requestCount, 1);
+  assert.equal(contextLimit.report.requestMetrics.calls[0].retryReason, null);
 });
 
 test("cyclic-v1 rotates only personal slots while public market facts stay shared", async () => {
@@ -278,10 +400,12 @@ test("one Provider failure is isolated and does not count as a model failure", a
     .every(trace => trace.finalResult.status === "completed"));
   const report = buildDirectRunReport(reportOptions("direct-fake-failure", 30_000, 4_800_000), output);
   const failedReport = report.agents.find(agent => agent.agentId === "competitor-2");
-  assert.equal(failedReport.failedRequests, 1);
-  assert.equal(failedReport.faultDomains.provider, 1);
+  assert.equal(failedReport.failedRequests, 2);
+  assert.equal(failedReport.retryAttempts, 1);
+  assert.equal(failedReport.faultDomains.provider, 2);
   assert.equal(failedReport.countsTowardModelFailure, false);
-  assert.equal(failedReport.modelCalls[0].terminationEventId !== null, true);
+  assert.equal(failedReport.modelCalls[0].retryReason, "http_error");
+  assert.equal(failedReport.modelCalls[1].terminationEventId !== null, true);
   assert.equal(report.totals.modelFailureAgents, 0);
 });
 
@@ -429,6 +553,12 @@ test("Replay assembler binds each cyclic-v1 mapping to its competitor and actual
   assert.throws(
     () => assembleMatchReplay("rotation-audit-binding", output.traces, DEFAULT_SCENARIO, forged),
     /cyclic-v1 映射无效/,
+  );
+  const forgedBudget = structuredClone(output.replay.competitionAudit);
+  forgedBudget.attemptTimeoutMs = forgedBudget.decisionTimeoutMs;
+  assert.throws(
+    () => assembleMatchReplay("rotation-audit-binding", output.traces, DEFAULT_SCENARIO, forgedBudget),
+    /预算、恢复或随机策略无效/,
   );
 });
 

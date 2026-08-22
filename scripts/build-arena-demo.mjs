@@ -83,7 +83,7 @@ function validateReplay(replay) {
   if (replay?.days?.some((day, index) => day.day !== index + 1)) errors.push("Replay 日期不连续");
   if (replay?.days?.some(day => day.agentSnapshots?.length !== 4)) errors.push("存在缺少四人快照的日期");
   if (!String(replay?.replayHash ?? "").startsWith("sha256:")) errors.push("Replay hash 不是 SHA-256");
-  if (replay?.schemaVersion !== "arena-schema-v3") errors.push("Replay schema 不是 v3");
+  if (replay?.schemaVersion !== "arena-schema-v4") errors.push("Replay schema 不是 v4");
   if (replay?.competitionAudit !== undefined) errors.push("Scripted 金样不得声明 Direct competitionAudit");
   if (replay?.personalRandomEventAudit?.basis !== "personal-event-count-v1") errors.push("Replay 缺少个人随机事件审计口径");
   if (errors.length) throw new Error(`Replay 验证失败：${errors.join("；")}`);

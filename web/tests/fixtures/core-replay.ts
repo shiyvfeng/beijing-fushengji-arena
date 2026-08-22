@@ -132,7 +132,7 @@ export function coreReplayFixture(): any {
     };
   });
   const body = {
-    schemaVersion: "arena-schema-v3",
+    schemaVersion: "arena-schema-v4",
     matchId: "web-adapter-test",
     rulesetVersion: "fushengji-rules-v1",
     toolSchemaVersion: "arena-tools-v1",
@@ -160,7 +160,8 @@ export function coreReplayFixture(): any {
       decisionPolicyId: "neutral-v1",
       decisionPolicyHash: policyHash,
       modelObservationVersion: "identity-free-v1",
-      contextPolicyVersion: "full-history-v1",
+      contextPolicyVersion: "bounded-history-v1",
+      recoveryPolicyVersion: "bounded-retry-v1",
       samplingPolicyVersion: "provider-explicit-effort-audited-v2",
       publicRandomization: "shared-seed",
       personalRandomization: "slot-isolated",
@@ -171,9 +172,13 @@ export function coreReplayFixture(): any {
       },
       maxActionsPerAgent: 160,
       decisionTimeoutMs: 60_000,
+      attemptTimeoutMs: 30_000,
       totalWallClockMsPerAgent: 9_600_000,
       maxOutputTokensPerRequest: 512,
-      automaticRetries: 0,
+      maxAttemptsPerDecision: 3,
+      maxRepairRetriesPerDecision: 2,
+      maxTransientRetriesPerDecision: 1,
+      automaticRetries: 2,
     },
     personalRandomEventAudit: {
       basis: "personal-event-count-v1",

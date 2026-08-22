@@ -44,7 +44,7 @@ Day 1～39 的可见状态和导出不包含终局与运气数据。页面载入
 npm run arena:replay -- --input /absolute/path/to/replay.json
 ```
 
-上述命令描述当时的构建链。待办 1 完成后，正式构建器已切换为只接受 `arena-schema-v3` 五模型 Replay，并明确拒绝 v2/四模型输入；`run-001` 的 JSON、hash、报告和已有 HTML 继续保持原样，但不再保证由当前 `arena:replay` 重建。历史实现当时会校验 v2、四 Agent、40 天和 canonical `replayHash`，按固定顺序内联脚本、样式与本地资源，并拒绝远程运行时依赖。
+上述命令描述当时的构建链。五模型首版曾切换到 `arena-schema-v3`；完成率改版后，当前正式构建器只接受 `arena-schema-v4` 五模型 Replay，并明确拒绝旧 schema/四模型输入。`run-001` 的 JSON、hash、报告和已有 HTML 继续保持原样，但不再保证由当前 `arena:replay` 重建。历史实现当时会校验 v2、四 Agent、40 天和 canonical `replayHash`，按固定顺序内联脚本、样式与本地资源，并拒绝远程运行时依赖。
 
 ## Scripted 的保留边界
 

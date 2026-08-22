@@ -16,9 +16,16 @@ import type {
   AgentDecisionHistoryEntry,
   AgentDecisionOutput,
   AgentDriver,
+  DecisionRetryFeedback,
   DirectModelRunMetrics,
 } from "./agent-driver.js";
 import { DirectProviderRequestError } from "./agent-driver.js";
+import {
+  directAttemptTimeoutMs,
+  DIRECT_MAX_ATTEMPTS_PER_DECISION,
+  DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
+  DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
+} from "./direct-context.js";
 
 export interface EpisodeRunConfig {
   readonly matchId: string;
@@ -55,8 +62,27 @@ export type EpisodeProgressEvent = Readonly<EpisodeProgressBase & (
       readonly requestCount: number;
     }
   | {
+      readonly event: "attempt_started";
+      readonly actionIndex: number;
+      readonly attemptIndex: number;
+      readonly day: number;
+      readonly requestCount: number;
+      readonly retryCategory: TechnicalFailureCategory | null;
+    }
+  | {
+      readonly event: "attempt_failed";
+      readonly actionIndex: number;
+      readonly attemptIndex: number;
+      readonly category: TechnicalFailureCategory;
+      readonly faultDomain: FaultDomain;
+      readonly willRetry: boolean;
+      readonly requestCount: number;
+      readonly lastCallLatencyMs: number | null;
+    }
+  | {
       readonly event: "action_completed";
       readonly actionIndex: number;
+      readonly attemptIndex: number;
       readonly actionType: GameAction["type"];
       readonly actionSucceeded: boolean;
       readonly dayBefore: number;
@@ -65,6 +91,8 @@ export type EpisodeProgressEvent = Readonly<EpisodeProgressBase & (
       readonly requestCount: number;
       readonly successfulRequestCount: number;
       readonly failedRequestCount: number;
+      readonly retryAttemptCount: number;
+      readonly recoveredByRetry: boolean;
       readonly lastCallLatencyMs: number | null;
       readonly lastCallInputTokens: number | null;
       readonly lastCallOutputTokens: number | null;
@@ -80,6 +108,8 @@ export type EpisodeProgressEvent = Readonly<EpisodeProgressBase & (
       readonly requestCount: number;
       readonly successfulRequestCount: number;
       readonly failedRequestCount: number;
+      readonly retryAttemptCount: number;
+      readonly recoveredDecisionCount: number;
       readonly requestsWithoutUsage: number;
       readonly cumulativeInputTokens: number;
       readonly cumulativeOutputTokens: number;
@@ -103,6 +133,9 @@ export interface EpisodeRunReport {
   readonly validActionCount: number;
   readonly invalidActionCount: number;
   readonly timeoutCount: number;
+  readonly attemptTimeoutMs: number;
+  readonly retryAttemptCount: number;
+  readonly recoveredDecisionCount: number;
   readonly totalWallClockMs: number;
   readonly traceHash: string;
   readonly technicalFailure?: TechnicalFailureDetail;
@@ -193,6 +226,49 @@ function linkTerminationEvidence(
   }
 }
 
+function linkRetryEvidence(
+  driver: AgentDriver,
+  evidence: ModelDecisionEvidence | undefined,
+  category: TechnicalFailureCategory,
+): void {
+  if (evidence) driver.linkModelCallEvidence?.(evidence.modelCallId, { retryReason: category });
+}
+
+type RetryKind = "repair" | "transient";
+
+function retryKindFor(error: unknown): RetryKind | null {
+  if (error instanceof DriverTimeoutError) {
+    return error.category === "timeout" ? "transient" : null;
+  }
+  if (!(error instanceof DirectProviderRequestError)) return null;
+  if (error.code === "invalid_action" || error.code === "invalid_response") return "repair";
+  if (error.code === "transport_error") return "transient";
+  if (error.code === "http_error" && error.httpStatus !== undefined
+    && (error.httpStatus === 408 || error.httpStatus === 429 || error.httpStatus >= 500)) {
+    return "transient";
+  }
+  return null;
+}
+
+function failureFacts(error: DriverTimeoutError | DirectProviderRequestError): {
+  readonly category: TechnicalFailureCategory;
+  readonly domain: FaultDomain;
+  readonly countsTowardModelFailure: boolean;
+} {
+  if (error instanceof DriverTimeoutError) {
+    return {
+      category: error.category,
+      domain: "undetermined",
+      countsTowardModelFailure: false,
+    };
+  }
+  return {
+    category: error.code,
+    domain: error.domain,
+    countsTowardModelFailure: error.countsTowardModelFailure,
+  };
+}
+
 function progressBase(driver: AgentDriver): EpisodeProgressBase {
   const descriptor = driver.descriptor;
   return {
@@ -239,6 +315,9 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
   );
   const resetTimeoutMs = validateTimeout(config.resetTimeoutMs ?? 5_000, "resetTimeoutMs");
   const decisionTimeoutMs = validateTimeout(config.decisionTimeoutMs ?? 30_000, "decisionTimeoutMs");
+  const attemptTimeoutMs = descriptor.driver === "direct"
+    ? directAttemptTimeoutMs(decisionTimeoutMs)
+    : decisionTimeoutMs;
   const defaultWallClock = maxActions * decisionTimeoutMs;
   const totalWallClockMs = validateTimeout(
     config.totalWallClockMs ?? defaultWallClock,
@@ -246,7 +325,9 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
     2_147_483_647,
   );
   let actionCount = 0;
+  let validActionCount = 0;
   let invalidActionCount = 0;
+  let recoveredDecisionCount = 0;
   let consecutiveInvalid = 0;
   let diagnostic: string | undefined;
   let timeoutPhase: "reset" | "decide" | undefined;
@@ -267,10 +348,10 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
     const wallClockStartedAt = performance.now();
     const wallClockDeadline = wallClockStartedAt + totalWallClockMs;
     while (environment.observe().state.status === "running") {
-      if (actionCount >= maxActions) {
+      if (validActionCount >= maxActions) {
         environment.terminateTechnical(
           "tool_limit",
-          `动作数达到上限 ${maxActions}。`,
+          `有效动作数达到上限 ${maxActions}。`,
           {
             category: "action_budget",
             phase: "action",
@@ -297,81 +378,190 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
         timeoutPhase = "decide";
         break;
       }
-      const effectiveTimeout = Math.max(1, Math.min(decisionTimeoutMs, remainingWallClock));
-      const timeoutCategory = remainingWallClock <= decisionTimeoutMs
-        ? "total_wall_clock" as const
-        : "timeout" as const;
-      driverPhase = "decide";
+      const actionIndex = validActionCount;
+      const decisionDeadline = Math.min(
+        wallClockDeadline,
+        performance.now() + decisionTimeoutMs,
+      );
+      let attemptIndex = 0;
+      let repairRetries = 0;
+      let transientRetries = 0;
+      let retryFeedback: DecisionRetryFeedback | undefined;
       if (config.onProgress) {
         emitProgress(config.onProgress, Object.freeze({
           ...base,
           event: "decision_started",
-          actionIndex: actionCount,
+          actionIndex,
           day: environment.observe().state.day,
           historyLength: history.length,
           requestCount: config.driver.getRunMetrics?.().requestCount ?? 0,
         }));
       }
-      const decision = normalizeDecisionOutput(await withDriverTimeout(
-        "decide",
-        effectiveTimeout,
-        timeoutCategory,
-        signal => config.driver.decide({
-          matchId: config.matchId,
-          observation: environment.observe(),
-          actionIndex: actionCount,
-          history: [...history],
-          signal,
-        }),
-      ));
-      driverPhase = "action";
-      const result = environment.step(decision.action, decision.evidence);
-      const actionIndex = actionCount;
-      actionCount++;
-      if (result.event) {
-        linkActionEvidence(config.driver, decision.evidence, result.event.id);
-        history.push(Object.freeze({
-          actionIndex: actionCount - 1,
-          action: result.event.action ?? decision.action,
-          result: Object.freeze({
-            success: result.event.result.success,
-            code: result.event.result.code ?? null,
-            message: result.event.result.message,
-            effects: result.event.result.effects,
-          }),
-          stateDiff: result.event.stateDiff,
-        }));
-      }
-      if (config.onProgress) {
-        const metrics = config.driver.getRunMetrics?.();
-        const lastCall = metrics?.calls.at(-1);
-        emitProgress(config.onProgress, Object.freeze({
-          ...base,
-          event: "action_completed",
-          actionIndex,
-          actionType: decision.action.type,
-          actionSucceeded: result.success,
-          dayBefore: result.before.day,
-          dayAfter: result.after.day,
-          stateStatus: result.after.status,
-          requestCount: metrics?.requestCount ?? 0,
-          successfulRequestCount: metrics?.successfulRequestCount ?? 0,
-          failedRequestCount: metrics?.failedRequestCount ?? 0,
-          lastCallLatencyMs: lastCall?.latencyMs ?? null,
-          lastCallInputTokens: lastCall?.tokenUsage?.inputTokens ?? null,
-          lastCallOutputTokens: lastCall?.tokenUsage?.outputTokens ?? null,
-          cumulativeTotalTokens: metrics?.totalTokens ?? 0,
-        }));
-      }
-      if (result.success) {
-        consecutiveInvalid = 0;
-      } else {
+      while (environment.observe().state.status === "running") {
+        const now = performance.now();
+        const logicalRemaining = Math.floor(decisionDeadline - now);
+        const wallRemaining = Math.floor(wallClockDeadline - now);
+        if (logicalRemaining <= 0 || wallRemaining <= 0) {
+          throw new DriverTimeoutError(
+            "decide",
+            decisionTimeoutMs,
+            wallRemaining <= 0 ? "total_wall_clock" : "timeout",
+          );
+        }
+        const effectiveAttemptTimeout = Math.max(
+          1,
+          Math.min(attemptTimeoutMs, logicalRemaining, wallRemaining),
+        );
+        const timeoutCategory = wallRemaining <= effectiveAttemptTimeout
+          ? "total_wall_clock" as const
+          : "timeout" as const;
+        driverPhase = "decide";
+        if (config.onProgress) {
+          emitProgress(config.onProgress, Object.freeze({
+            ...base,
+            event: "attempt_started",
+            actionIndex,
+            attemptIndex,
+            day: environment.observe().state.day,
+            requestCount: config.driver.getRunMetrics?.().requestCount ?? 0,
+            retryCategory: retryFeedback?.category ?? null,
+          }));
+        }
+
+        let decision: AgentDecisionOutput;
+        try {
+          decision = normalizeDecisionOutput(await withDriverTimeout(
+            "decide",
+            effectiveAttemptTimeout,
+            timeoutCategory,
+            signal => config.driver.decide({
+              matchId: config.matchId,
+              observation: environment.observe(),
+              actionIndex,
+              attemptIndex,
+              ...(retryFeedback ? { retryFeedback } : {}),
+              history: [...history],
+              signal,
+            }),
+          ));
+        } catch (error: unknown) {
+          if (!(error instanceof DriverTimeoutError)
+            && !(error instanceof DirectProviderRequestError)) throw error;
+          const facts = failureFacts(error);
+          const evidence = error instanceof DriverTimeoutError
+            ? config.driver.recordExternalDecisionFailure?.(
+              facts.category,
+              facts.domain,
+              facts.countsTowardModelFailure,
+            )
+            : config.driver.getActiveDecisionEvidence?.();
+          const retryKind = descriptor.driver === "direct" ? retryKindFor(error) : null;
+          const withinAttemptLimit = attemptIndex + 1 < DIRECT_MAX_ATTEMPTS_PER_DECISION;
+          const canRetryRepair = retryKind === "repair"
+            && repairRetries < DIRECT_MAX_REPAIR_RETRIES_PER_DECISION;
+          const canRetryTransient = retryKind === "transient"
+            && transientRetries < DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION;
+          const willRetry = withinAttemptLimit && (canRetryRepair || canRetryTransient)
+            && performance.now() < decisionDeadline
+            && performance.now() < wallClockDeadline;
+          if (config.onProgress) {
+            const metrics = config.driver.getRunMetrics?.();
+            emitProgress(config.onProgress, Object.freeze({
+              ...base,
+              event: "attempt_failed",
+              actionIndex,
+              attemptIndex,
+              category: facts.category,
+              faultDomain: facts.domain,
+              willRetry,
+              requestCount: metrics?.requestCount ?? 0,
+              lastCallLatencyMs: metrics?.calls.at(-1)?.latencyMs ?? null,
+            }));
+          }
+          if (!willRetry) throw error;
+          linkRetryEvidence(config.driver, evidence, facts.category);
+          if (retryKind === "repair") repairRetries++;
+          else transientRetries++;
+          retryFeedback = Object.freeze({ category: facts.category });
+          attemptIndex++;
+          continue;
+        }
+
+        driverPhase = "action";
+        const result = environment.step(decision.action, decision.evidence);
+        actionCount++;
+        if (result.event) {
+          linkActionEvidence(config.driver, decision.evidence, result.event.id);
+          history.push(Object.freeze({
+            actionIndex,
+            attemptIndex,
+            dayBefore: result.before.day,
+            dayAfter: result.after.day,
+            action: result.event.action ?? decision.action,
+            result: Object.freeze({
+              success: result.event.result.success,
+              code: result.event.result.code ?? null,
+              message: result.event.result.message,
+              effects: result.event.result.effects,
+            }),
+            stateDiff: result.event.stateDiff,
+          }));
+        }
+        if (config.onProgress) {
+          const metrics = config.driver.getRunMetrics?.();
+          const lastCall = metrics?.calls.at(-1);
+          emitProgress(config.onProgress, Object.freeze({
+            ...base,
+            event: "action_completed",
+            actionIndex,
+            attemptIndex,
+            actionType: decision.action.type,
+            actionSucceeded: result.success,
+            dayBefore: result.before.day,
+            dayAfter: result.after.day,
+            stateStatus: result.after.status,
+            requestCount: metrics?.requestCount ?? 0,
+            successfulRequestCount: metrics?.successfulRequestCount ?? 0,
+            failedRequestCount: metrics?.failedRequestCount ?? 0,
+            retryAttemptCount: metrics?.retryAttemptCount ?? 0,
+            recoveredByRetry: result.success && attemptIndex > 0,
+            lastCallLatencyMs: lastCall?.latencyMs ?? null,
+            lastCallInputTokens: lastCall?.tokenUsage?.inputTokens ?? null,
+            lastCallOutputTokens: lastCall?.tokenUsage?.outputTokens ?? null,
+            cumulativeTotalTokens: metrics?.totalTokens ?? 0,
+          }));
+        }
+        if (result.success) {
+          validActionCount++;
+          if (attemptIndex > 0) recoveredDecisionCount++;
+          consecutiveInvalid = 0;
+          break;
+        }
+
         invalidActionCount++;
         consecutiveInvalid++;
-        if (consecutiveInvalid >= maxInvalid) {
+        const canRepair = descriptor.driver === "direct"
+          && attemptIndex + 1 < DIRECT_MAX_ATTEMPTS_PER_DECISION
+          && repairRetries < DIRECT_MAX_REPAIR_RETRIES_PER_DECISION
+          && performance.now() < decisionDeadline
+          && performance.now() < wallClockDeadline;
+        if (canRepair) {
+          repairRetries++;
+          retryFeedback = Object.freeze({
+            category: "invalid_action",
+            ...(result.event?.result.code ? { actionErrorCode: result.event.result.code } : {}),
+            rejectedAction: decision.action,
+          });
+          attemptIndex++;
+          continue;
+        }
+        if (consecutiveInvalid >= maxInvalid || descriptor.driver === "direct") {
+          const limit = descriptor.driver === "direct"
+            ? DIRECT_MAX_REPAIR_RETRIES_PER_DECISION + 1
+            : maxInvalid;
           environment.terminateTechnical(
             "loop_terminated",
-            `连续 ${maxInvalid} 次动作无效。`,
+            `连续 ${limit} 次动作无效。`,
             {
               category: "invalid_action_loop",
               phase: "action",
@@ -379,8 +569,8 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
               countsTowardModelFailure: true,
             },
           );
-          break;
         }
+        break;
       }
     }
   } catch (error: unknown) {
@@ -450,9 +640,12 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
     driver: descriptor.driver,
     status: trace.finalResult.status,
     actionCount,
-    validActionCount: actionCount - invalidActionCount,
+    validActionCount,
     invalidActionCount,
     timeoutCount: timeoutPhase ? 1 : 0,
+    attemptTimeoutMs,
+    retryAttemptCount: requestMetrics?.retryAttemptCount ?? 0,
+    recoveredDecisionCount,
     totalWallClockMs,
     traceHash: trace.traceHash,
     ...(trace.finalResult.technicalFailure ? { technicalFailure: trace.finalResult.technicalFailure } : {}),
@@ -469,11 +662,13 @@ export async function runEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOu
       status: trace.finalResult.status,
       endDay: trace.finalResult.endDay,
       actionCount,
-      validActionCount: actionCount - invalidActionCount,
+      validActionCount,
       invalidActionCount,
       requestCount: requestMetrics?.requestCount ?? 0,
       successfulRequestCount: requestMetrics?.successfulRequestCount ?? 0,
       failedRequestCount: requestMetrics?.failedRequestCount ?? 0,
+      retryAttemptCount: requestMetrics?.retryAttemptCount ?? 0,
+      recoveredDecisionCount,
       requestsWithoutUsage: requestMetrics
         ? requestMetrics.requestCount - requestMetrics.usageReportedRequestCount
         : 0,

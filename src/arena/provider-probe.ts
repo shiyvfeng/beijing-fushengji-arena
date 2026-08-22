@@ -23,7 +23,11 @@ import {
   DIRECT_CONTEXT_POLICY_VERSION,
   DIRECT_DECISION_POLICY_HASH,
   DIRECT_DECISION_POLICY_ID,
+  DIRECT_MAX_ATTEMPTS_PER_DECISION,
+  DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
+  DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
   DIRECT_MODEL_OBSERVATION_VERSION,
+  DIRECT_RECOVERY_POLICY_VERSION,
   DIRECT_SAMPLING_POLICY_VERSION,
 } from "./direct-context.js";
 
@@ -53,7 +57,7 @@ export interface ProviderProbeEntry {
 }
 
 export interface ProviderProbeResult {
-  readonly artifactType: "arena-provider-probe-v2";
+  readonly artifactType: "arena-provider-probe-v3";
   readonly matchId: string;
   readonly createdAt: string;
   readonly passed: boolean;
@@ -63,6 +67,7 @@ export interface ProviderProbeResult {
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: typeof DIRECT_MODEL_OBSERVATION_VERSION;
   readonly contextPolicyVersion: typeof DIRECT_CONTEXT_POLICY_VERSION;
+  readonly recoveryPolicyVersion: typeof DIRECT_RECOVERY_POLICY_VERSION;
   readonly samplingPolicyVersion: typeof DIRECT_SAMPLING_POLICY_VERSION;
   readonly entries: readonly ProviderProbeEntry[];
   readonly probeSummaryHash: string;
@@ -282,7 +287,7 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
 export function computeProbeConfigFingerprint(input: ProbeFingerprintInput): string {
   if (input.agents.length !== 5) throw new Error("Probe 配置指纹必须包含五个 Agent");
   return integrityHash({
-    contract: "arena-provider-probe-config-v3",
+    contract: "arena-provider-probe-config-v4",
     matchId: input.matchId,
     seed: input.seed,
     scenarioId: input.scenario.id,
@@ -303,7 +308,11 @@ export function computeProbeConfigFingerprint(input: ProbeFingerprintInput): str
       decisionPolicyHash: DIRECT_DECISION_POLICY_HASH,
       modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
       contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
+      recoveryPolicyVersion: DIRECT_RECOVERY_POLICY_VERSION,
       samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
+      maxAttemptsPerDecision: DIRECT_MAX_ATTEMPTS_PER_DECISION,
+      maxRepairRetriesPerDecision: DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
+      maxTransientRetriesPerDecision: DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
     },
   });
 }
@@ -341,6 +350,7 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
       || !descriptor.providerReasoningEffort
       || descriptor.providerReasoningEffort === "default"
       || driver.competitionProfile?.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
+      || driver.competitionProfile?.recoveryPolicyVersion !== DIRECT_RECOVERY_POLICY_VERSION
       || driver.competitionProfile?.samplingPolicyVersion !== DIRECT_SAMPLING_POLICY_VERSION) {
       throw new Error("Provider Probe 的五个 Direct Agent 配置或 cyclic-v1 映射无效");
     }
@@ -357,7 +367,7 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
     throw new Error(`Provider Probe 请求计数守卫失败：预期 5，实际 ${requestCount}`);
   }
   const body = {
-    artifactType: "arena-provider-probe-v2" as const,
+    artifactType: "arena-provider-probe-v3" as const,
     matchId: config.matchId,
     createdAt: config.createdAt ?? new Date().toISOString(),
     passed: entries.every(entry => entry.passed),
@@ -367,6 +377,7 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
     decisionPolicyHash: DIRECT_DECISION_POLICY_HASH,
     modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
     contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
+    recoveryPolicyVersion: DIRECT_RECOVERY_POLICY_VERSION,
     samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
     entries: Object.freeze(entries),
   };
@@ -388,7 +399,7 @@ export function assertMatchingProviderProbe(
   const entries = Array.isArray(summary.entries) ? summary.entries : [];
   const entryIds = new Set(entries.map(entry => entry?.agentId));
   const entrySlots = new Set(entries.map(entry => entry?.agentSlot));
-  if (summary.artifactType !== "arena-provider-probe-v2"
+  if (summary.artifactType !== "arena-provider-probe-v3"
     || summary.requestCount !== 5
     || summary.passed !== true
     || entries.length !== 5
@@ -417,6 +428,7 @@ export function assertMatchingProviderProbe(
     || summary.decisionPolicyHash !== DIRECT_DECISION_POLICY_HASH
     || summary.modelObservationVersion !== DIRECT_MODEL_OBSERVATION_VERSION
     || summary.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
+    || summary.recoveryPolicyVersion !== DIRECT_RECOVERY_POLICY_VERSION
     || summary.samplingPolicyVersion !== DIRECT_SAMPLING_POLICY_VERSION
     || typeof summary.createdAt !== "string"
     || Number.isNaN(Date.parse(summary.createdAt))

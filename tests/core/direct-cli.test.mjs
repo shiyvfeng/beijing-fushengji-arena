@@ -60,7 +60,7 @@ function providerLines(outputDir, overrides = {}) {
     "https://api.moonshot.cn/v1",
   ];
   const lines = [];
-  const highestEfforts = ["max", "max", "max", "xhigh", "max"];
+  const highestEfforts = ["low", "low", "low", "low", "low"];
   CONFIG_LETTERS.forEach((letter, index) => {
     const base = {
       provider: providers[index],
@@ -97,7 +97,7 @@ function fakeProviderEnv() {
     env[`ARENA_AGENT_${letter}_MODEL`] = `model-${index + 1}`;
     env[`ARENA_AGENT_${letter}_MODEL_REVISION`] = `revision-${index + 1}`;
     env[`ARENA_AGENT_${letter}_THINKING`] = "default";
-    env[`ARENA_AGENT_${letter}_REASONING_EFFORT`] = "max";
+    env[`ARENA_AGENT_${letter}_REASONING_EFFORT`] = "low";
   });
   return env;
 }
@@ -120,8 +120,9 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /REASONING_EFFORT/);
   assert.match(result.stdout, /--total-wall-clock-ms/);
   assert.match(result.stdout, /--slot-rotation-index/);
-  assert.match(result.stdout, /5 × 160 = 800/);
+  assert.match(result.stdout, /5 × 160 × 3 = 2400/);
   assert.match(result.stdout, /probe-summary\.json/);
+  assert.match(result.stdout, /stability-summary\.json/);
 });
 
 test("config check validates five normalized identities without requiring output", t => {
@@ -203,12 +204,12 @@ test("missing E, sixth groups and alias-normalized duplicates fail before networ
   assert.match(duplicateResult.stderr, /Provider \+ model.*互不重复/);
 });
 
-test("Probe requires an output directory and remains mutually exclusive", t => {
+test("Probe modes require an output directory and remain mutually exclusive", t => {
   const { path } = createEnvFixture(t, providerLines(""));
   const missingOutput = runCli(["--env-file", path, "--probe-providers"]);
   assert.equal(missingOutput.status, 1);
   assert.match(missingOutput.stderr, /必须指定.*output-dir/);
-  for (const conflict of ["--check-config", "--confirm-live-run"]) {
+  for (const conflict of ["--check-config", "--stability-probe", "--confirm-live-run"]) {
     const result = runCli(["--env-file", path, "--probe-providers", conflict]);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /互斥/);
@@ -242,7 +243,7 @@ test("wrapper build phase strips credentials including slot E", t => {
   assert.equal(`${result.stdout}${result.stderr}`.includes(TEST_SECRET), false);
 });
 
-test("full match is blocked when matching passed Probe is absent or stale", t => {
+test("full match is blocked when matching passed Probe or Stability Probe is absent or stale", t => {
   const outputDir = mkdtempSync(join(tmpdir(), "arena-direct-gate-"));
   t.after(() => rmSync(outputDir, { recursive: true, force: true }));
   const env = fakeProviderEnv();
@@ -256,6 +257,21 @@ test("full match is blocked when matching passed Probe is absent or stale", t =>
   const reprobe = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--probe-providers"], env);
   assert.equal(reprobe.status, 0, reprobe.stderr);
   assert.equal(existsSync(join(outputDir, "probe-summary.json.tmp")), false);
+  const noStability = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--confirm-live-run"], env);
+  assert.equal(noStability.status, 1);
+  assert.match(noStability.stderr, /完成十步 Stability Probe/);
+  const stability = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--stability-probe"], env);
+  assert.equal(stability.status, 0, stability.stderr);
+  assert.equal(existsSync(join(outputDir, "stability-summary.json.tmp")), false);
+  const stabilityPath = join(outputDir, "stability-summary.json");
+  const tamperedStability = JSON.parse(readFileSync(stabilityPath, "utf8"));
+  tamperedStability.totals.validActions = 49;
+  writeFileSync(stabilityPath, `${JSON.stringify(tamperedStability, null, 2)}\n`, "utf8");
+  const tampered = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--confirm-live-run"], env);
+  assert.equal(tampered.status, 1);
+  assert.match(tampered.stderr, /Stability Probe 摘要/);
+  const restoredStability = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--stability-probe"], env);
+  assert.equal(restoredStability.status, 0, restoredStability.stderr);
   const staleEnv = { ...env, ARENA_AGENT_E_MODEL: "changed-model" };
   const stale = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--confirm-live-run"], staleEnv);
   assert.equal(stale.status, 1);
@@ -263,16 +279,25 @@ test("full match is blocked when matching passed Probe is absent or stale", t =>
   assert.equal(existsSync(join(outputDir, "replay.json")), false);
 });
 
-test("five Fake Providers complete Probe + Match and create the formal artifact set", t => {
+test("five Fake Providers complete Probe + Stability + Match and create the formal artifact set", t => {
   const outputDir = mkdtempSync(join(tmpdir(), "arena-direct-fake-five-"));
   t.after(() => rmSync(outputDir, { recursive: true, force: true }));
   const env = fakeProviderEnv();
   const probeRun = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--probe-providers"], env);
   assert.equal(probeRun.status, 0, probeRun.stderr);
   const probe = JSON.parse(readFileSync(join(outputDir, "probe-summary.json"), "utf8"));
-  assert.equal(probe.artifactType, "arena-provider-probe-v2");
+  assert.equal(probe.artifactType, "arena-provider-probe-v3");
   assert.equal(probe.requestCount, 5);
   assert.equal(probe.passed, true);
+
+  const stabilityRun = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--stability-probe"], env);
+  assert.equal(stabilityRun.status, 0, stabilityRun.stderr);
+  const stability = JSON.parse(readFileSync(join(outputDir, "stability-summary.json"), "utf8"));
+  assert.equal(stability.artifactType, "arena-provider-stability-v1");
+  assert.equal(stability.passed, true);
+  assert.equal(stability.actionTargetPerAgent, 10);
+  assert.equal(stability.totals.validActions, 50);
+  assert.ok(stability.entries.every(entry => entry.validActions === 10));
 
   const rotatedKeyEnv = { ...env, ARENA_AGENT_A_API_KEY: `${TEST_SECRET}-rotated-after-probe` };
   const matchRun = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, "--confirm-live-run"], rotatedKeyEnv);
@@ -288,20 +313,21 @@ test("five Fake Providers complete Probe + Match and create the formal artifact 
   assert.ok(progress.some(event => event.event === "action_completed"));
   assert.equal(findPotentialSecrets(progress).length, 0);
   assert.equal(JSON.stringify(progress).includes("userContext"), false);
-  for (const file of ["probe-summary.json", "episode-traces.json", "replay.json", "run-report.json", "replay.html"]) {
+  for (const file of ["probe-summary.json", "stability-summary.json", "episode-traces.json", "replay.json", "run-report.json", "replay.html"]) {
     assert.equal(existsSync(join(outputDir, file)), true, `${file} missing`);
   }
   const replay = JSON.parse(readFileSync(join(outputDir, "replay.json"), "utf8"));
   const report = JSON.parse(readFileSync(join(outputDir, "run-report.json"), "utf8"));
   const traces = JSON.parse(readFileSync(join(outputDir, "episode-traces.json"), "utf8"));
   const html = readFileSync(join(outputDir, "replay.html"), "utf8");
-  assert.equal(replay.schemaVersion, "arena-schema-v3");
+  assert.equal(replay.schemaVersion, "arena-schema-v4");
   assert.equal(replay.metadata.executionMode, "direct");
   assert.equal(replay.metadata.agentCount, 5);
   assert.deepEqual(replay.competitionAudit.slotRotation.mappings.map(item => item.slot), [2, 3, 4, 0, 1]);
   assert.equal(traces.length, 5);
-  assert.equal(report.artifactType, "arena-direct-run-report-v4");
+  assert.equal(report.artifactType, "arena-direct-run-report-v5");
   assert.equal(report.probe.summaryHash, probe.probeSummaryHash);
+  assert.equal(report.stability.summaryHash, stability.stabilitySummaryHash);
   assert.equal(report.agents.length, 5);
   assert.ok(report.agents.every(agent => agent.requestCount > 0 && agent.requestCount <= 40));
   assert.ok(report.agents.every(agent => agent.modelCalls.every(call => call.actionEventId)));
@@ -326,6 +352,7 @@ test("five Fake Providers complete Probe + Match and create the formal artifact 
 
   for (const file of [
     "probe-summary.json",
+    "stability-summary.json",
     "episode-traces.json",
     "replay.json",
     "run-report.json",
@@ -337,19 +364,19 @@ test("five Fake Providers complete Probe + Match and create the formal artifact 
   }
 });
 
-test("formal replay builder rejects v2 and four-model v3 before Web build", t => {
+test("formal replay builder rejects old schemas and four-model v4 before Web build", t => {
   const directory = mkdtempSync(join(tmpdir(), "arena-replay-reject-old-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const cases = [
     {
       name: "v2",
       replay: { schemaVersion: "arena-schema-v2" },
-      pattern: /只支持 arena-schema-v3/,
+      pattern: /只支持 arena-schema-v4/,
     },
     {
-      name: "four-v3",
+      name: "four-v4",
       replay: {
-        schemaVersion: "arena-schema-v3",
+        schemaVersion: "arena-schema-v4",
         replayHash: `sha256:${"0".repeat(64)}`,
         factHash: `sha256:${"1".repeat(64)}`,
         metadata: { executionMode: "direct" },
@@ -375,7 +402,7 @@ test("completed artifacts are protected from Probe and Match overwrite", t => {
   t.after(() => rmSync(outputDir, { recursive: true, force: true }));
   writeFileSync(join(outputDir, "replay.html"), "must-not-overwrite\n", "utf8");
   const env = fakeProviderEnv();
-  for (const mode of ["--probe-providers", "--confirm-live-run"]) {
+  for (const mode of ["--probe-providers", "--stability-probe", "--confirm-live-run"]) {
     const result = runCli(["--output-dir", outputDir, ...OFFLINE_ARGS, mode], env);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /已有比赛产物/);

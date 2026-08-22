@@ -24,15 +24,16 @@ import type {
 } from "./agent-driver.js";
 import { DirectProviderRequestError } from "./agent-driver.js";
 import {
-  buildFullHistoryUserContext,
+  buildBoundedHistoryUserContext,
   DIRECT_CONTEXT_POLICY_VERSION,
   DIRECT_DECISION_POLICY_HASH,
   DIRECT_DECISION_POLICY_ID,
   DIRECT_MODEL_OBSERVATION_VERSION,
+  DIRECT_RECOVERY_POLICY_VERSION,
   DIRECT_SAMPLING_POLICY_VERSION,
   DIRECT_SYSTEM_INSTRUCTION,
   fullContextHash,
-  serializeFullHistoryUserContext,
+  serializeBoundedHistoryUserContext,
 } from "./direct-context.js";
 
 export {
@@ -40,6 +41,7 @@ export {
   DIRECT_DECISION_POLICY_HASH,
   DIRECT_DECISION_POLICY_ID,
   DIRECT_MODEL_OBSERVATION_VERSION,
+  DIRECT_RECOVERY_POLICY_VERSION,
   DIRECT_SAMPLING_POLICY_VERSION,
   DIRECT_SYSTEM_INSTRUCTION,
 } from "./direct-context.js";
@@ -59,11 +61,12 @@ export const DEFAULT_DIRECT_AGENT_SPECS: readonly DefaultDirectAgentSpec[] = Obj
 );
 
 interface MutableModelCall {
-  readonly artifactType: "arena-model-call-v1";
+  readonly artifactType: "arena-model-call-v2";
   readonly modelCallId: string;
   readonly agentId: string;
   readonly agentSlot: number;
   readonly actionIndex: number;
+  readonly attemptIndex: number;
   readonly observationHash: string;
   readonly fullContextHash: string;
   readonly startedAt: number;
@@ -75,6 +78,7 @@ interface MutableModelCall {
   failure?: ArenaModelCallAudit["failure"];
   actionEventId?: string;
   terminationEventId?: string;
+  retryReason?: TechnicalFailureCategory;
 }
 
 function requireNonEmpty(value: string, name: string): string {
@@ -191,6 +195,7 @@ export class DirectModelDriver implements AgentDriver {
       decisionPolicyHash: DIRECT_DECISION_POLICY_HASH,
       modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
       contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
+      recoveryPolicyVersion: DIRECT_RECOVERY_POLICY_VERSION,
       samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
       maxOutputTokensPerRequest: config.provider.maxOutputTokens,
     });
@@ -218,21 +223,33 @@ export class DirectModelDriver implements AgentDriver {
       throw input.signal.reason instanceof Error ? input.signal.reason : new Error("Direct Model 决策已取消");
     }
     const observation = createDirectModelObservation(input.observation);
-    const contextObject = buildFullHistoryUserContext(input.actionIndex, observation, input.history);
-    const userContext = serializeFullHistoryUserContext(contextObject);
+    const attemptIndex = input.attemptIndex ?? 0;
+    if (!Number.isSafeInteger(attemptIndex) || attemptIndex < 0) {
+      throw new Error("Direct Model attemptIndex 必须为非负安全整数");
+    }
+    const contextObject = buildBoundedHistoryUserContext(
+      input.actionIndex,
+      attemptIndex,
+      observation,
+      input.history,
+      input.retryFeedback,
+    );
+    const userContext = serializeBoundedHistoryUserContext(contextObject);
     const contextHash = fullContextHash(DIRECT_SYSTEM_INSTRUCTION, userContext);
     const modelCallId = `model-call_${stableHash({
       matchId: input.matchId,
       agentId: this.descriptor.id,
       actionIndex: input.actionIndex,
+      attemptIndex,
     })}`;
     if (this.calls.has(modelCallId)) throw new Error(`重复 modelCallId：${modelCallId}`);
     const call: MutableModelCall = {
-      artifactType: "arena-model-call-v1",
+      artifactType: "arena-model-call-v2",
       modelCallId,
       agentId: this.descriptor.id,
       agentSlot: this.descriptor.slot,
       actionIndex: input.actionIndex,
+      attemptIndex,
       observationHash: input.observation.observationHash,
       fullContextHash: contextHash,
       startedAt: performance.now(),
@@ -319,14 +336,17 @@ export class DirectModelDriver implements AgentDriver {
   linkModelCallEvidence(modelCallId: string, link: ModelCallEvidenceLink): void {
     const call = this.calls.get(modelCallId);
     if (!call) throw new Error(`未知 modelCallId：${modelCallId}`);
+    const targets = [link.actionEventId, link.terminationEventId, link.retryReason].filter(Boolean);
+    if (targets.length !== 1) throw new Error("模型调用证据必须恰好关联动作、终止或重试之一");
     if (link.actionEventId) call.actionEventId = link.actionEventId;
     if (link.terminationEventId) call.terminationEventId = link.terminationEventId;
+    if (link.retryReason) call.retryReason = link.retryReason;
     if (this.currentEvidence?.modelCallId === modelCallId) this.currentEvidence = undefined;
   }
 
   getRunMetrics(): DirectModelRunMetrics {
     const calls = [...this.calls.values()]
-      .sort((a, b) => a.actionIndex - b.actionIndex)
+      .sort((a, b) => a.actionIndex - b.actionIndex || a.attemptIndex - b.attemptIndex)
       .map(call => this.snapshotCall(call));
     const latencies = calls.map(call => call.latencyMs);
     const usage = calls.flatMap(call => call.tokenUsage ? [call.tokenUsage] : []);
@@ -342,6 +362,7 @@ export class DirectModelDriver implements AgentDriver {
       requestCount: calls.length,
       successfulRequestCount: calls.filter(call => call.status === "succeeded").length,
       failedRequestCount: calls.filter(call => call.status === "failed").length,
+      retryAttemptCount: calls.filter(call => call.attemptIndex > 0).length,
       usageReportedRequestCount: usage.length,
       inputTokens: usage.reduce((sum, item) => sum + item.inputTokens, 0),
       outputTokens: usage.reduce((sum, item) => sum + item.outputTokens, 0),
@@ -392,6 +413,7 @@ export class DirectModelDriver implements AgentDriver {
       agentId: call.agentId,
       agentSlot: call.agentSlot,
       actionIndex: call.actionIndex,
+      attemptIndex: call.attemptIndex,
       observationHash: call.observationHash,
       fullContextHash: call.fullContextHash,
       status: call.status ?? "failed",
@@ -402,6 +424,7 @@ export class DirectModelDriver implements AgentDriver {
       modelRevision: this.revisionAudit(call),
       actionEventId: call.actionEventId ?? null,
       terminationEventId: call.terminationEventId ?? null,
+      retryReason: call.retryReason ?? null,
       failure: call.status === "succeeded"
         ? null
         : call.failure ?? {

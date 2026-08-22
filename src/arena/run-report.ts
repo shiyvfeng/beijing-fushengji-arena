@@ -28,6 +28,8 @@ export interface ArenaRunAgentReport {
   readonly successfulRequests: number;
   readonly failedRequests: number;
   readonly timedOutRequests: number;
+  readonly retryAttempts: number;
+  readonly recoveredDecisions: number;
   readonly validActions: number;
   readonly invalidActions: number;
   readonly dnf: boolean;
@@ -48,7 +50,7 @@ export interface ArenaRunAgentReport {
 }
 
 export interface ArenaDirectRunReport {
-  readonly artifactType: "arena-direct-run-report-v4";
+  readonly artifactType: "arena-direct-run-report-v5";
   readonly executionMode: "direct";
   readonly matchId: string;
   readonly seed: number;
@@ -57,21 +59,32 @@ export interface ArenaDirectRunReport {
     readonly summaryHash: string;
     readonly createdAt: string;
   };
+  readonly stability: {
+    readonly summaryHash: string;
+    readonly createdAt: string;
+    readonly actionTargetPerAgent: 10;
+  };
   readonly competitionAudit: NonNullable<MatchRunOutput["replay"]["competitionAudit"]>;
   readonly limits: {
     readonly agents: 5;
     readonly maxActionsPerAgent: number;
     readonly maxModelRequests: number;
     readonly decisionTimeoutMs: number;
+    readonly attemptTimeoutMs: number;
     readonly totalWallClockMsPerAgent: number;
     readonly maxOutputTokensPerRequest: number;
-    readonly automaticRetries: 0;
+    readonly maxAttemptsPerDecision: 3;
+    readonly maxRepairRetriesPerDecision: 2;
+    readonly maxTransientRetriesPerDecision: 1;
+    readonly automaticRetries: 2;
   };
   readonly totals: {
     readonly requestCount: number;
     readonly successfulRequests: number;
     readonly failedRequests: number;
     readonly timedOutRequests: number;
+    readonly retryAttempts: number;
+    readonly recoveredDecisions: number;
     readonly validActions: number;
     readonly invalidActions: number;
     readonly dnfAgents: number;
@@ -103,6 +116,8 @@ interface RunReportOptions {
   readonly maxOutputTokens: number;
   readonly probeSummaryHash: string;
   readonly probeCreatedAt: string;
+  readonly stabilitySummaryHash: string;
+  readonly stabilityCreatedAt: string;
 }
 
 function rounded(value: number): number {
@@ -148,11 +163,20 @@ function verifyCallLinks(
   if (!trace) throw new Error(`缺少 Agent ${agentId} 的 Trace`);
   const events = new Map(trace.events.map(event => [event.id, event]));
   for (const call of calls) {
-    const linkedIds = [call.actionEventId, call.terminationEventId].filter(Boolean);
-    if (linkedIds.length !== 1) {
-      throw new Error(`modelCallId ${call.modelCallId} 必须恰好关联一个 action 或 technical termination`);
+    const links = [call.actionEventId, call.terminationEventId, call.retryReason].filter(Boolean);
+    if (links.length !== 1) {
+      throw new Error(`modelCallId ${call.modelCallId} 必须恰好关联一个 action、technical termination 或 retry`);
     }
-    const event = events.get(linkedIds[0]!);
+    if (call.retryReason) {
+      if (call.status !== "failed"
+        || call.failure?.category !== call.retryReason
+        || call.attemptIndex >= 2) {
+        throw new Error(`modelCallId ${call.modelCallId} 的 retry 证据无效`);
+      }
+      continue;
+    }
+    const eventId = call.actionEventId ?? call.terminationEventId;
+    const event = eventId ? events.get(eventId) : undefined;
     if (!event
       || event.modelCallId !== call.modelCallId
       || event.fullContextHash !== call.fullContextHash
@@ -184,8 +208,10 @@ export function buildDirectRunReport(
     throw new Error("Direct run-report 配置与 Replay competitionAudit 不一致");
   }
   if (!/^sha256:[0-9a-f]{64}$/u.test(options.probeSummaryHash)
-    || Number.isNaN(Date.parse(options.probeCreatedAt))) {
-    throw new Error("Direct run-report 的 Probe 摘要引用无效");
+    || Number.isNaN(Date.parse(options.probeCreatedAt))
+    || !/^sha256:[0-9a-f]{64}$/u.test(options.stabilitySummaryHash)
+    || Number.isNaN(Date.parse(options.stabilityCreatedAt))) {
+    throw new Error("Direct run-report 的 Probe 或 Stability 摘要引用无效");
   }
   const agentById = new Map(output.replay.agents.map(agent => [agent.id, agent]));
   const agents: ArenaRunAgentReport[] = output.report.episodeReports.map(episode => {
@@ -230,6 +256,8 @@ export function buildDirectRunReport(
       timedOutRequests: failures.filter(failure => (
         failure.category === "timeout" || failure.category === "total_wall_clock"
       )).length,
+      retryAttempts: metrics.retryAttemptCount,
+      recoveredDecisions: episode.recoveredDecisionCount,
       validActions: actionEvents.filter(event => event.result.success).length,
       invalidActions: actionEvents.filter(event => !event.result.success).length,
       dnf: !agent.rankEligible,
@@ -256,6 +284,8 @@ export function buildDirectRunReport(
     successfulRequests: allCalls.filter(call => call.status === "succeeded").length,
     failedRequests: allCalls.filter(call => call.status === "failed").length,
     timedOutRequests: agents.reduce((sum, agent) => sum + agent.timedOutRequests, 0),
+    retryAttempts: agents.reduce((sum, agent) => sum + agent.retryAttempts, 0),
+    recoveredDecisions: agents.reduce((sum, agent) => sum + agent.recoveredDecisions, 0),
     validActions: agents.reduce((sum, agent) => sum + agent.validActions, 0),
     invalidActions: agents.reduce((sum, agent) => sum + agent.invalidActions, 0),
     dnfAgents: agents.filter(agent => agent.dnf).length,
@@ -271,7 +301,7 @@ export function buildDirectRunReport(
     latency: latencyFor(allCalls),
   });
   return Object.freeze({
-    artifactType: "arena-direct-run-report-v4",
+    artifactType: "arena-direct-run-report-v5",
     executionMode: "direct",
     matchId: options.matchId,
     seed: options.seed,
@@ -280,15 +310,24 @@ export function buildDirectRunReport(
       summaryHash: options.probeSummaryHash,
       createdAt: options.probeCreatedAt,
     }),
+    stability: Object.freeze({
+      summaryHash: options.stabilitySummaryHash,
+      createdAt: options.stabilityCreatedAt,
+      actionTargetPerAgent: 10 as const,
+    }),
     competitionAudit: audit,
     limits: Object.freeze({
       agents: 5 as const,
       maxActionsPerAgent: options.maxActionsPerAgent,
-      maxModelRequests: 5 * options.maxActionsPerAgent,
+      maxModelRequests: 5 * options.maxActionsPerAgent * audit.maxAttemptsPerDecision,
       decisionTimeoutMs: options.decisionTimeoutMs,
+      attemptTimeoutMs: audit.attemptTimeoutMs,
       totalWallClockMsPerAgent: options.totalWallClockMs,
       maxOutputTokensPerRequest: options.maxOutputTokens,
-      automaticRetries: 0 as const,
+      maxAttemptsPerDecision: 3 as const,
+      maxRepairRetriesPerDecision: 2 as const,
+      maxTransientRetriesPerDecision: 1 as const,
+      automaticRetries: 2 as const,
     }),
     totals,
     agents: Object.freeze(agents),

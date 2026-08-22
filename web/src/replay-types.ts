@@ -112,7 +112,8 @@ export interface CompetitionAudit {
   decisionPolicyId: string;
   decisionPolicyHash: string;
   modelObservationVersion: string;
-  contextPolicyVersion: "full-history-v1";
+  contextPolicyVersion: "bounded-history-v1";
+  recoveryPolicyVersion: "bounded-retry-v1";
   samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   publicRandomization: "shared-seed";
   personalRandomization: "slot-isolated";
@@ -123,9 +124,13 @@ export interface CompetitionAudit {
   };
   maxActionsPerAgent: number;
   decisionTimeoutMs: number;
+  attemptTimeoutMs: number;
   totalWallClockMsPerAgent: number;
   maxOutputTokensPerRequest: number;
-  automaticRetries: 0;
+  maxAttemptsPerDecision: 3;
+  maxRepairRetriesPerDecision: 2;
+  maxTransientRetriesPerDecision: 1;
+  automaticRetries: 2;
 }
 
 export interface AgentPersonalRandomEventSummary {

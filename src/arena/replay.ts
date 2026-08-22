@@ -281,7 +281,7 @@ function validateTraces(
   if (driverKind === "direct") {
     if (sorted.length !== 5
       || sorted.some((trace, index) => trace.agentSlot !== index)) {
-      throw new Error("arena-schema-v3 Direct Replay 必须包含连续 slot 0..4 的五条 Trace");
+      throw new Error("arena-schema-v4 Direct Replay 必须包含连续 slot 0..4 的五条 Trace");
     }
     const identities = new Set<string>();
     for (const trace of sorted) {
@@ -430,19 +430,29 @@ export function assembleMatchReplay(
       || competitionAudit.maxActionsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.decisionTimeoutMs)
       || competitionAudit.decisionTimeoutMs <= 0
+      || !Number.isSafeInteger(competitionAudit.attemptTimeoutMs)
+      || competitionAudit.attemptTimeoutMs <= 0
+      || competitionAudit.attemptTimeoutMs !== Math.max(
+        1,
+        Math.floor(competitionAudit.decisionTimeoutMs / 2),
+      )
       || !Number.isSafeInteger(competitionAudit.totalWallClockMsPerAgent)
       || competitionAudit.totalWallClockMsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.maxOutputTokensPerRequest)
       || competitionAudit.maxOutputTokensPerRequest < 16
       || competitionAudit.maxOutputTokensPerRequest > 4_096
-      || competitionAudit.automaticRetries !== 0
+      || competitionAudit.maxAttemptsPerDecision !== 3
+      || competitionAudit.maxRepairRetriesPerDecision !== 2
+      || competitionAudit.maxTransientRetriesPerDecision !== 1
+      || competitionAudit.automaticRetries !== 2
       || competitionAudit.publicRandomization !== "shared-seed"
       || competitionAudit.personalRandomization !== "slot-isolated"
-      || competitionAudit.contextPolicyVersion !== "full-history-v1"
+      || competitionAudit.contextPolicyVersion !== "bounded-history-v1"
+      || competitionAudit.recoveryPolicyVersion !== "bounded-retry-v1"
       || competitionAudit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
       || competitionAudit.slotRotation.version !== "cyclic-v1"
       || competitionAudit.slotRotation.mappings.length !== 5) {
-      throw new Error("Direct Replay competitionAudit 的预算或随机策略无效");
+      throw new Error("Direct Replay competitionAudit 的预算、恢复或随机策略无效");
     }
     const { rotationIndex, mappings } = competitionAudit.slotRotation;
     const mappingSlots = new Set(mappings.map(item => item.slot));

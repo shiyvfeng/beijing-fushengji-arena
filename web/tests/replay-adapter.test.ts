@@ -23,7 +23,8 @@ test("adapter exposes five Provider + Model identities, full actions and classif
   assert.equal(replay.agentProfiles.length, 5);
   assert.equal(replay.competitionAudit?.decisionPolicyId, "neutral-v1");
   assert.equal(replay.competitionAudit?.personalRandomization, "slot-isolated");
-  assert.equal(replay.competitionAudit?.contextPolicyVersion, "full-history-v1");
+  assert.equal(replay.competitionAudit?.contextPolicyVersion, "bounded-history-v1");
+  assert.equal(replay.competitionAudit?.recoveryPolicyVersion, "bounded-retry-v1");
   assert.equal(replay.days[0].actions.filter(action => action.agentId === "competitor-1").length, 2);
   assert.deepEqual(
     replay.days[0].actions.filter(action => action.agentId === "competitor-1").map(action => action.result),
@@ -101,6 +102,11 @@ test("adapter fails closed on schema, fairness, identity and state violations", 
   ];
   rehashReplay(mismatchedRotation);
   assert.throws(() => adaptCoreMatchReplay(mismatchedRotation), /cyclic-v1 映射无效/);
+
+  const mismatchedAttemptBudget = coreReplayFixture();
+  mismatchedAttemptBudget.competitionAudit.attemptTimeoutMs = 60_000;
+  rehashReplay(mismatchedAttemptBudget);
+  assert.throws(() => adaptCoreMatchReplay(mismatchedAttemptBudget), /预算无效/);
 
   const v2 = coreReplayFixture();
   v2.schemaVersion = "arena-schema-v2";

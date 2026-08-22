@@ -20,7 +20,7 @@ import type {
 } from "./replay-types.ts";
 
 type JsonObject = Record<string, unknown>;
-const SUPPORTED_SCHEMA_VERSION = "arena-schema-v3";
+const SUPPORTED_SCHEMA_VERSION = "arena-schema-v4";
 const SHA256_PATTERN = /^sha256:[a-f0-9]{64}$/u;
 const ITEM_NAMES = ["进口香烟", "走私汽车", "盗版VCD", "假白酒", "禁书", "进口玩具", "水货手机", "伪劣化妆品"];
 const LOCATION_NAMES = [
@@ -145,11 +145,15 @@ function validateState(value: unknown, label: string): JsonObject {
 function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<string, number>): CompetitionAudit {
   const audit = requireObject(value, "Replay.competitionAudit");
   if (audit.fairnessClass !== "controlled-exhibition"
-    || audit.contextPolicyVersion !== "full-history-v1"
+    || audit.contextPolicyVersion !== "bounded-history-v1"
+    || audit.recoveryPolicyVersion !== "bounded-retry-v1"
     || audit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
     || audit.publicRandomization !== "shared-seed"
     || audit.personalRandomization !== "slot-isolated"
-    || audit.automaticRetries !== 0) {
+    || audit.maxAttemptsPerDecision !== 3
+    || audit.maxRepairRetriesPerDecision !== 2
+    || audit.maxTransientRetriesPerDecision !== 1
+    || audit.automaticRetries !== 2) {
     throw new Error("Replay.competitionAudit 的策略版本无效");
   }
   const rotation = requireObject(audit.slotRotation, "Replay.competitionAudit.slotRotation");
@@ -175,9 +179,12 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
   }
   const maxActionsPerAgent = requireInteger(audit.maxActionsPerAgent, "competitionAudit.maxActionsPerAgent");
   const decisionTimeoutMs = requireInteger(audit.decisionTimeoutMs, "competitionAudit.decisionTimeoutMs");
+  const attemptTimeoutMs = requireInteger(audit.attemptTimeoutMs, "competitionAudit.attemptTimeoutMs");
   const totalWallClockMsPerAgent = requireInteger(audit.totalWallClockMsPerAgent, "competitionAudit.totalWallClockMsPerAgent");
   const maxOutputTokensPerRequest = requireInteger(audit.maxOutputTokensPerRequest, "competitionAudit.maxOutputTokensPerRequest");
-  if (maxActionsPerAgent <= 0 || decisionTimeoutMs <= 0 || totalWallClockMsPerAgent <= 0
+  if (maxActionsPerAgent <= 0 || decisionTimeoutMs <= 0
+    || attemptTimeoutMs !== Math.max(1, Math.floor(decisionTimeoutMs / 2))
+    || totalWallClockMsPerAgent <= 0
     || maxOutputTokensPerRequest < 16 || maxOutputTokensPerRequest > 4_096) {
     throw new Error("Replay.competitionAudit 预算无效");
   }
@@ -186,16 +193,21 @@ function validateCompetitionAudit(value: unknown, slotsByAgent: ReadonlyMap<stri
     decisionPolicyId: requireString(audit.decisionPolicyId, "competitionAudit.decisionPolicyId"),
     decisionPolicyHash: requireSha256(audit.decisionPolicyHash, "competitionAudit.decisionPolicyHash"),
     modelObservationVersion: requireString(audit.modelObservationVersion, "competitionAudit.modelObservationVersion"),
-    contextPolicyVersion: "full-history-v1",
+    contextPolicyVersion: "bounded-history-v1",
+    recoveryPolicyVersion: "bounded-retry-v1",
     samplingPolicyVersion: "provider-explicit-effort-audited-v2",
     publicRandomization: "shared-seed",
     personalRandomization: "slot-isolated",
     slotRotation: { version: "cyclic-v1", rotationIndex, mappings },
     maxActionsPerAgent,
     decisionTimeoutMs,
+    attemptTimeoutMs,
     totalWallClockMsPerAgent,
     maxOutputTokensPerRequest,
-    automaticRetries: 0,
+    maxAttemptsPerDecision: 3,
+    maxRepairRetriesPerDecision: 2,
+    maxTransientRetriesPerDecision: 1,
+    automaticRetries: 2,
   };
 }
 

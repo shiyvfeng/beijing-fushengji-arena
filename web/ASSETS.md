@@ -21,7 +21,7 @@ npm run arena:replay -- \
   --output /absolute/path/to/replay.html
 ```
 
-`arena:replay` 要求显式 `--input`，会先校验 Replay schema 与 hash，再构建 Web、内联脚本/样式/本地图片，并检查远程依赖。正式构建器当前只接受五模型 `arena-schema-v3`，明确拒绝 v2 和四模型 Replay；历史 `run-001` 的已有 HTML 保留，但不再保证可由新版构建器重建。
+`arena:replay` 要求显式 `--input`，会先校验 Replay schema 与 hash，再构建 Web、内联脚本/样式/本地图片，并检查远程依赖。正式构建器当前只接受五模型 `arena-schema-v4`，明确拒绝旧 schema 和四模型 Replay；历史产物的已有 HTML 保留，但不再保证可由新版构建器重建。
 
 旧的 `ARENA_REPLAY_JSON=... npm run build` 和位置参数 `node scripts/build-replay.mjs <replay.json>` 不是当前公开入口，不应继续使用。底层脚本需要显式 `--input` 与 `--output`，正常使用应经根目录的 `arena:replay` 命令。
 

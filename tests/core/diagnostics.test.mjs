@@ -192,7 +192,7 @@ test("raw exchange toggle cannot change Trace, Replay, fact hash or ranking", as
 
     const directory = join(onRoot, "diagnostics-hash-stability", "match");
     const files = readdirSync(directory);
-    assert.equal(files.length, 5);
+    assert.equal(files.length, 10);
     for (const file of files) {
       assert.equal(readFileSync(join(directory, file), "utf8").includes(secret), false);
     }

@@ -4,9 +4,9 @@ import type { DirectModelDecisionInput, ProviderTokenUsage } from "../agent-driv
 import { DirectProviderRequestError } from "../agent-driver.js";
 import { parseDirectGameAction } from "../direct-driver.js";
 import {
-  buildFullHistoryUserContext,
+  buildBoundedHistoryUserContext,
   DIRECT_SYSTEM_INSTRUCTION,
-  serializeFullHistoryUserContext,
+  serializeBoundedHistoryUserContext,
 } from "../direct-context.js";
 
 export { DirectProviderRequestError } from "../agent-driver.js";
@@ -97,10 +97,12 @@ export function buildArenaSystemInstruction(input: DirectModelDecisionInput): st
 }
 
 export function buildArenaUserContext(input: DirectModelDecisionInput): string {
-  return input.userContext ?? serializeFullHistoryUserContext(buildFullHistoryUserContext(
+  return input.userContext ?? serializeBoundedHistoryUserContext(buildBoundedHistoryUserContext(
     input.actionIndex,
+    input.attemptIndex ?? 0,
     input.observation,
     input.history ?? [],
+    input.retryFeedback,
   ));
 }
 

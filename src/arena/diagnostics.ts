@@ -27,7 +27,7 @@ export interface RawExchangeRecorderOptions {
   readonly enabled: boolean;
   readonly diagnosticsRoot: string;
   readonly matchId: string;
-  readonly phase: "probe" | "match";
+  readonly phase: "probe" | "stability" | "match";
   readonly secrets: readonly string[];
 }
 

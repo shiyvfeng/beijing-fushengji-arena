@@ -1,102 +1,53 @@
-# `run-002` 五模型真实比赛工程验收记录
+# `run-002` 旧策略诊断与新策略重置记录
 
-## 1. 验收结论
+## 当前结论
 
-- `arena-direct-v22-run-002` 已完成真实五 Provider Probe、正式比赛、五 Trace、Replay v3、Report v4、单文件 HTML 和正式双视口浏览器验收。
-- 工程证据链完整且所有故障均有结构化归属，**工程侧建议作为新版真实金样候选计入 1/3**。
-- 本场五位选手均为技术 DNF，没有游戏内死亡、破产或正式名次。根据已确认口径，技术 DNF 本身不是自动重跑或拒收条件。
-- 最终产品验收与正式金样计数由产品负责人确认；确认前项目台账仍记为 `0/3（工程候选 1/3）`。
-- 原始交换诊断关闭，因此不能从产物中进一步解释上游响应正文；以下故障类别、HTTP 状态和归属以事实账本为准，不做超出证据的推断。
+- 新版真实金样仍为 `0/3`；本文件记录的所有真实运行都发生在 `full-history-v1`、最高 reasoning effort、零重试的旧策略下，不能计入当前 `bounded-history-v1 + bounded-retry-v1` 金样。
+- 标准目录 `dist/arena-direct/run-002` 当前只有旧策略 `probe-summary.json`，没有 Trace、Replay、Report、HTML 或正式浏览器报告。
+- 两份旧完整产物保存在独立诊断目录；最近一次开启原始交换的比赛被产品负责人要求停止，没有生成正式比赛产物。
+- 新策略要求重新执行 Probe v3 和十步 Stability Probe；未经再次授权，不发起任何付费 Stability 或正式比赛请求。
 
-## 2. 固定输入与基线
+## 已保留的真实诊断证据
 
-| 项目 | 值 |
+| 目录或证据 | 事实 | 当前用途 |
+| --- | --- | --- |
+| `dist/arena-direct/run-002-attempt-01-network-suspected` | 完整旧策略比赛与浏览器报告 | 网络稳定性疑问下的历史诊断，不计金样 |
+| `dist/arena-direct/run-002-attempt-02-pre-live-diagnostics` | 128 请求、123 成功、5 失败、123 个有效动作、0 个环境非法动作；Replay v3、Report v4、浏览器 14/14 | 证明旧实现事实链与失败模式，不计金样 |
+| `dist/arena-diagnostics/arena-direct-v22-run-002/match` | 中止运行留下 84 个已完成脱敏原始 exchange：Anthropic 70、OpenAI 3、DeepSeek 2、Qwen 2、Kimi 7 | 定位延迟、输出截断和网络故障，不是比赛产物 |
+| `dist/arena-direct/run-002` | 仅旧策略 Probe 摘要 | 新策略指纹不匹配，必须重新 Probe |
+
+旧完整比赛中五位选手最终均技术 DNF。OpenAI、Qwen、Kimi 出现单次 120 秒超时，DeepSeek 出现 `incomplete`，Anthropic 在推进到 Day 32 后超时。该场所有成功请求均能关联 action event，失败请求均能关联 technical termination；这些事实仍可用于工程诊断，但策略改版后不再具备金样可比性。
+
+## 开启原始交换后的中止诊断
+
+最近一次比赛按要求开启了 `ARENA_SAVE_RAW_EXCHANGES=true`，运行过慢后被人工停止。停止时没有写出 Trace、Replay、Report 或 HTML；已完成的脱敏 exchange 保留在诊断目录。
+
+可确认的主要故障如下：
+
+- DeepSeek 第 2 次请求 HTTP 200，但 `finish_reason=length`，4096 个输出 Token 全部为 reasoning，正文为空；这解释了 `incomplete`，不是动作解析器误判。
+- OpenAI 第 3 次、Qwen 第 2 次、Kimi 第 7 次请求由本地 120 秒上限中止；原始记录只有 `transportError=true`，没有上游 HTTP 响应，不能把责任直接归给模型。
+- Anthropic 已完成 70 次请求，输入上下文从约 1245 Token 增长到约 16307 Token，显示全历史策略会持续拉高延迟与费用。
+- 该次已接受动作均符合环境契约；之前完整旧策略比赛同样记录 0 个环境非法动作。完成率低的主要事实是高强度思考、上下文增长、输出截断与瞬态请求失败的组合，而不是单一 `invalid_action` 原因。
+
+## 已确认的新策略
+
+| 项目 | 新契约 |
 | --- | --- |
-| 输出目录 | `dist/arena-direct/run-002` |
-| Match ID | `arena-direct-v22-run-002` |
-| Seed | `2026082202` |
-| Rotation | `cyclic-v1 / 0` |
-| Match Runner 基线 | `98e9d1e9e5d2023ffcb477eafa7b450f38d0d72f` |
-| Day 0 DNF 浏览器验收修复 | `14bc880afda9f348a8979e80ae3d2a7b4c63dea2` |
-| 最大动作数 | 每 Agent 160 |
-| 单次决策上限 | `120000 ms` |
-| 默认总墙钟 | 每 Agent `19200000 ms` |
-| 单次输出上限 | 4096 Token |
-| 自动重试 | 0 |
-| 原始交换诊断 | 关闭 |
+| 思考等级 | 五家统一为最低非关闭 `low`；DeepSeek 保持 `thinking=enabled` |
+| 上下文 | `bounded-history-v1`：当前完整 Observation、最近 5 天摘要、最近 8 条完整动作、更早历史确定性聚合 |
+| 逻辑决策预算 | 仍为 120 秒；单次尝试最多 60 秒 |
+| 修复重试 | `invalid_response` / `invalid_action` 最多 2 次 |
+| 瞬态重试 | timeout、transport、HTTP 408/429/5xx 最多 1 次 |
+| 总尝试数 | 每个逻辑决策最多 3 次，重试不延长逻辑决策或总墙钟 |
+| 不重试 | 鉴权、额度、`context_limit`、拒绝、输出截断和其他不可重试错误 |
+| 稳定性门禁 | Probe 5/5 后，五家并行且各自顺序完成 10 个有效动作；全部通过才允许正式比赛 |
+| 审计版本 | Probe v3、model-call v2、Replay v4、Report v5、Stability v1 |
 
-五组配置均使用显式最高 reasoning effort：OpenAI、Anthropic、DeepSeek、Kimi 为 `max`，Qwen 为 `xhigh`；DeepSeek 另显式使用 `thinking=enabled`。
+所有失败请求、环境拒绝、重试尝试、恢复决策、Token、延迟、revision、故障类别和证据引用均进入事实账本，后续可作为可靠性评价输入。死亡或技术 DNF 仍按事实验收，不以全员 Day 40 或零 DNF 为重跑条件。
 
-## 3. Provider Probe
+## 下一步
 
-Probe 创建时间为 `2026-08-22T08:17:46.295Z`，五项全部通过，总 Token 为 15551。
-
-| Provider / model | Effort | 延迟 | Token |
-| --- | --- | ---: | ---: |
-| OpenAI / `gpt-5.6-sol` | `max` | 75789.102 ms | 6591 |
-| Anthropic / `claude-opus-5` | `max` | 7038.023 ms | 2355 |
-| DeepSeek / `deepseek-v4-pro` | `enabled + max` | 38755.113 ms | 3246 |
-| Qwen / `qwen3.8-max` | `xhigh` | 4649.378 ms | 1512 |
-| Kimi / `kimi-k3` | `max` | 23059.181 ms | 1847 |
-
-- 配置指纹：`sha256:d18a73532dce4d1d0e7770f9b073092f5234c55e11560df35213206528870dee`
-- Probe 摘要 hash：`sha256:3f1c8dd4c5b13cf695e10928ea0d07b2271a6e98abdc8e2bba1d7bdd22cfdb7a`
-
-## 4. 正式比赛事实
-
-全场共发起 11 次请求，6 次成功、5 次失败；产生 6 个有效动作、0 个非法动作。输入/输出/合计 Token 为 14853/2317/17170，其中 5 个失败请求无 usage。所有请求均有 action event 或 technical-termination event 引用。
-
-| Provider / model | 退出事实 | 有效动作 | 请求成功/总数 | 故障类别 | 归属 | 计入模型失败 | Token | 终止净值 |
-| --- | --- | ---: | ---: | --- | --- | --- | ---: | ---: |
-| OpenAI / `gpt-5.6-sol` | Day 0 `runtime_error` | 0 | 0/1 | `invalid_response` | `protocol` | 否 | 0 | -3000 |
-| Anthropic / `claude-opus-5` | Day 3 `runtime_error` | 4 | 4/5 | `http_error`，HTTP 500 | `provider` | 否 | 13214 | 2567 |
-| DeepSeek / `deepseek-v4-pro` | Day 1 `runtime_error` | 1 | 1/2 | `incomplete` | `model` | 是 | 2446 | -3500 |
-| Qwen / `qwen3.8-max` | Day 1 `model_timeout` | 1 | 1/2 | `timeout`，120002.616 ms | `undetermined` | 否 | 1510 | -3500 |
-| Kimi / `kimi-k3` | Day 0 `runtime_error` | 0 | 0/1 | `http_error`，HTTP 429 | `provider` | 否 | 0 | -3000 |
-
-Anthropic 的四个有效动作依次为 `move(0)`、`move(1)`、`buy(itemId=5, quantity=23)`、`move(2)`；DeepSeek 与 Qwen 各完成一次 `move(0)`。五位选手全部技术 DNF，因此 `finalRanking=[]`，页面没有伪造名次。
-
-## 5. 产物、hash 与安全核验
-
-内部事实 hash：
-
-- Replay hash：`sha256:dc0f91add9211b0983234fdc0d4fb28c2d1488adecb3dffc5ae2d720bab54196`
-- Fact hash：`sha256:631f2a429b514b016079c78a67c68956767b438d68905848f8b95016ac134e4c`
-- HTML SHA-256：`89535c12a530a84539340990d2211c90cbdf8221f783cead7a0ab5757cfa0fd9`
-
-文件 SHA-256：
-
-| 文件 | SHA-256 |
-| --- | --- |
-| `probe-summary.json` | `86be7f4c5029e09b60ac45713b26a9d5c1398516e9ea0709cb672e733c8c4023` |
-| `episode-traces.json` | `644ecb9cde5bf9effaf0d2c73623eb7c68b558ac02a6074cd007fb64fb148f3b` |
-| `replay.json` | `8fa331913932a757486a14d22fee6002a45d09080741dfa05eb9892a135c23af` |
-| `run-report.json` | `c76e0a31d15db4fa83fce7a0e2ebdf258e426dee2f08f6b3bdb72d32d510580a` |
-| `replay.html` | `89535c12a530a84539340990d2211c90cbdf8221f783cead7a0ab5757cfa0fd9` |
-| `browser-acceptance.json` | `8afe84bf22eb08ac3c744c97dedc45664b255411ac6e033f77b45bc427f97576` |
-
-已验证：
-
-- Probe 摘要、五个 Trace 和 Replay 自身 hash 全部匹配；Replay 的 `sourceTraceHashes` 与五 Trace 一一对应；
-- Report 引用的 Replay/Probe hash、浏览器报告引用的 Replay/fact/HTML hash 全部一致；
-- 40 天事实切片完整，五个 `Provider + model` 唯一，请求与 action/termination event 一一对账；
-- Probe、Trace、Replay、Report、HTML、浏览器报告的敏感信息扫描均为 0。
-
-## 6. 浏览器验收
-
-首次正式运行通过 12/14；两种视口都因验收工具尝试跳转到不存在的 Day 0 而失败。真实 Replay 合法记录了两名选手在首个动作前终止，而页面事实范围按契约为 Day 1～40。修复只将 Day 0 DNF 映射到 Day 1 可见切片，同时继续核对“第 0 天退出”和后续无动作；未修改 Runner、Trace、Replay、Report 或 HTML。
-
-修复后结果：
-
-- 固定 Fixture：14/14；
-- `run-002` 正式 Replay：14/14；
-- Node `v24.19.0`、Playwright `1.62.1`、Chromium `151.0.7922.34`；
-- 1366×768 与 1920×1080 各 7/7；
-- 确定性重复构建为 `true`，现有 HTML hash 与两次重建一致；
-- Day 1/39/40、防剧透、五 DNF、空排名、失败关闭、离线、控制台、键盘与焦点均通过。
-
-正式报告：`dist/arena-direct/run-002/browser-acceptance.json`。
-
-## 7. 待产品负责人确认
-
-请确认是否接受以下判断：**本场虽然全员技术 DNF，但真实请求、故障归属、事实产物、hash、安全扫描和正式浏览器报告均完整，符合“不以零 DNF 或全员 Day 40 为门槛”的既定规则，因此计为新版真实金样 1/3，不为改善结果重跑。**
+1. 新策略 Core 92/92、Web 11/11、typecheck 与 Node 24 双视口 Fixture 14/14 已通过；完成敏感信息/diff 检查并建立本地 Git 基线，不推送。
+2. 对 `run-002` 固定参数执行脱敏 `--check-config`，确认五家均为 `low` 且 DeepSeek thinking 开启。
+3. 再次取得产品负责人明确授权后，重新 Probe；Probe v3 通过后，再单独授权十步 Stability Probe。
+4. Stability 通过后，才讨论是否授权正式 `run-002`；任何旧策略产物都不回填为新策略金样。

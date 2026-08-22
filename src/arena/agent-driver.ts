@@ -17,6 +17,9 @@ import type { StateDiff } from "../core/state-diff.js";
 
 export interface AgentDecisionHistoryEntry {
   readonly actionIndex: number;
+  readonly attemptIndex: number;
+  readonly dayBefore: number;
+  readonly dayAfter: number;
   readonly action: GameAction | Readonly<Record<string, unknown>>;
   readonly result: {
     readonly success: boolean;
@@ -27,10 +30,18 @@ export interface AgentDecisionHistoryEntry {
   readonly stateDiff: StateDiff;
 }
 
+export interface DecisionRetryFeedback {
+  readonly category: TechnicalFailureCategory;
+  readonly actionErrorCode?: string;
+  readonly rejectedAction?: GameAction;
+}
+
 export interface AgentDecisionInput {
   readonly matchId: string;
   readonly observation: Observation;
   readonly actionIndex: number;
+  readonly attemptIndex?: number;
+  readonly retryFeedback?: DecisionRetryFeedback;
   readonly history: readonly AgentDecisionHistoryEntry[];
   readonly signal: AbortSignal;
 }
@@ -47,6 +58,7 @@ export interface AgentResetInput {
 export interface ModelCallEvidenceLink {
   readonly actionEventId?: string;
   readonly terminationEventId?: string;
+  readonly retryReason?: TechnicalFailureCategory;
 }
 
 /** Shared boundary for scripted, Direct Model and future strict-MCP drivers. */
@@ -161,7 +173,8 @@ export interface DirectCompetitionProfile {
   readonly decisionPolicyId: string;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
-  readonly contextPolicyVersion: "full-history-v1";
+  readonly contextPolicyVersion: "bounded-history-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v1";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly maxOutputTokensPerRequest: number;
 }
@@ -181,11 +194,12 @@ export interface ModelCallFailureAudit {
 }
 
 export interface ArenaModelCallAudit {
-  readonly artifactType: "arena-model-call-v1";
+  readonly artifactType: "arena-model-call-v2";
   readonly modelCallId: string;
   readonly agentId: string;
   readonly agentSlot: number;
   readonly actionIndex: number;
+  readonly attemptIndex: number;
   readonly observationHash: string;
   readonly fullContextHash: string;
   readonly status: "succeeded" | "failed";
@@ -196,6 +210,7 @@ export interface ArenaModelCallAudit {
   readonly modelRevision: ModelRevisionAudit;
   readonly actionEventId: string | null;
   readonly terminationEventId: string | null;
+  readonly retryReason: TechnicalFailureCategory | null;
   readonly failure: ModelCallFailureAudit | null;
 }
 
@@ -204,6 +219,7 @@ export interface DirectModelRunMetrics {
   readonly requestCount: number;
   readonly successfulRequestCount: number;
   readonly failedRequestCount: number;
+  readonly retryAttemptCount: number;
   readonly usageReportedRequestCount: number;
   readonly inputTokens: number;
   readonly outputTokens: number;

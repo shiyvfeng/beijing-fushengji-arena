@@ -30,6 +30,12 @@ import {
   type ArenaAgentProviderConfig,
 } from "./arena/providers/provider-factory.js";
 import { buildDirectRunReport } from "./arena/run-report.js";
+import {
+  assertMatchingProviderStability,
+  buildProviderStabilityResult,
+  STABILITY_ACTION_TARGET,
+  type ProviderStabilityResult,
+} from "./arena/stability-probe.js";
 import { DEFAULT_SCENARIO } from "./core/scenario.js";
 import { findPotentialSecrets } from "./core/secret-scan.js";
 import { integrityHash } from "./core/stable-value.js";
@@ -81,6 +87,7 @@ interface DirectCliOptions {
   readonly confirmLiveRun: boolean;
   readonly checkConfig: boolean;
   readonly probeProviders: boolean;
+  readonly stabilityProbe: boolean;
 }
 
 interface EnvFileSelection {
@@ -91,6 +98,7 @@ interface EnvFileSelection {
 
 interface ArtifactTargets {
   readonly probe: string;
+  readonly stability: string;
   readonly replay: string;
   readonly traces: string;
   readonly report: string;
@@ -103,6 +111,7 @@ function usage(): string {
     "",
     "用法：",
     "  npm run arena:direct -- --probe-providers --output-dir <目录>",
+    "  npm run arena:direct -- --stability-probe --output-dir <同一目录>",
     "  npm run arena:direct -- --output-dir <同一目录> --confirm-live-run",
     "",
     "必须配置 ARENA_AGENT_A...E 的 PROVIDER、BASE_URL、API_KEY、MODEL、REASONING_EFFORT。",
@@ -120,11 +129,12 @@ function usage(): string {
     "  --max-output-tokens <16..4096>",
     "  --slot-rotation-index <0..4>",
     "  --probe-providers                 五组并行各请求一次并原子写 probe-summary.json",
-    "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe 门禁",
+    "  --stability-probe                 五组并行各完成 10 个有效动作并写 stability-summary.json",
+    "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe + Stability 门禁",
     "  --check-config                    脱敏检查，不联网、不写产物",
     "  --help",
     "",
-    `默认最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT}；自动重试为 0。`,
+    `正式比赛理论最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} × 3 = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT * 3}；重试不延长单决策总时限。`,
     "正式比赛实时输出 arena-live-progress-v1 JSONL；只含脱敏事实与请求统计。",
     "ARENA_SAVE_RAW_EXCHANGES 默认为 false；开启后诊断只写 dist/arena-diagnostics。",
   ].join("\n");
@@ -258,6 +268,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let confirmLiveRun = false;
   let checkConfig = false;
   let probeProviderConnections = false;
+  let stabilityProbe = false;
 
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
@@ -272,6 +283,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--probe-providers") {
       probeProviderConnections = true;
+      continue;
+    }
+    if (argument === "--stability-probe") {
+      stabilityProbe = true;
       continue;
     }
     const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(argument);
@@ -365,11 +380,14 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   if (identities.size !== AGENT_COUNT) {
     throw new Error("归一化后的五个 Provider + model 组合必须互不重复");
   }
-  if (probeProviderConnections && (confirmLiveRun || checkConfig)) {
-    throw new Error("--probe-providers 与 --confirm-live-run、--check-config 互斥");
+  const selectedModes = [probeProviderConnections, stabilityProbe, confirmLiveRun, checkConfig]
+    .filter(Boolean).length;
+  if (selectedModes > 1) {
+    throw new Error("--probe-providers、--stability-probe、--confirm-live-run 与 --check-config 互斥");
   }
-  if (confirmLiveRun && checkConfig) throw new Error("--confirm-live-run 与 --check-config 互斥");
-  if (!outputDir && !checkConfig) throw new Error("Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
+  if (!outputDir && !checkConfig) {
+    throw new Error("Probe、Stability Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
+  }
   const validatedOutputDir = outputDir ? validateOutputDirectory(outputDir) : undefined;
   matchId = validateMatchId(matchId || `arena-direct-${seed}`);
   return {
@@ -386,12 +404,14 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     confirmLiveRun,
     checkConfig,
     probeProviders: probeProviderConnections,
+    stabilityProbe,
   };
 }
 
 function artifactTargets(outputDir: string): ArtifactTargets {
   return {
     probe: join(outputDir, "probe-summary.json"),
+    stability: join(outputDir, "stability-summary.json"),
     replay: join(outputDir, "replay.json"),
     traces: join(outputDir, "episode-traces.json"),
     report: join(outputDir, "run-report.json"),
@@ -411,7 +431,7 @@ function prepareOutputDirectory(outputDir: string, targets: ArtifactTargets): vo
     throw new Error("输出目录无法创建或不可写；尚未发起模型请求");
   }
   if (completedArtifacts(targets).length > 0) {
-    throw new Error("输出目录已有比赛产物；为避免覆盖，不允许 Probe 或比赛写入");
+    throw new Error("输出目录已有比赛产物；为避免覆盖，不允许 Probe、Stability Probe 或比赛写入");
   }
 }
 
@@ -477,14 +497,15 @@ function configurationSummary(options: DirectCliOptions): string {
     ...(options.outputDir ? [`  输出目录: ${options.outputDir}`] : []),
     `  slot 轮换: cyclic-v1 / ${options.slotRotationIndex}`,
     `  单次决策时限: ${options.decisionTimeoutMs} ms`,
+    `  单次尝试时限: ${Math.max(1, Math.floor(options.decisionTimeoutMs / 2))} ms`,
     `  每 Agent 总墙钟: ${options.totalWallClockMs} ms`,
     `  单次输出上限: ${options.maxOutputTokens} tokens`,
     `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
     ...(options.saveRawExchanges
-      ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,match}`]
+      ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,stability,match}`]
       : []),
     "  实时进度: arena-live-progress-v1 JSONL（仅脱敏事实字段）",
-    "  自动重试: 0",
+    "  恢复策略: bounded-retry-v1（每决策最多 3 次；修复重试 2 次；瞬态重试 1 次）",
   ].join("\n");
 }
 
@@ -503,7 +524,7 @@ function assertKeysConfigured(options: DirectCliOptions): void {
   if (missing.length) throw new Error(`配置 ${missing.join("/")} 缺少独立 API Key`);
 }
 
-function createRecorder(options: DirectCliOptions, phase: "probe" | "match") {
+function createRecorder(options: DirectCliOptions, phase: "probe" | "stability" | "match") {
   return createRawExchangeRecorder({
     enabled: options.saveRawExchanges,
     diagnosticsRoot: DIAGNOSTICS_ROOT,
@@ -527,10 +548,29 @@ function readMatchingProbe(targets: ArtifactTargets, fingerprint: string): Provi
   return parsed;
 }
 
+function readMatchingStability(
+  targets: ArtifactTargets,
+  fingerprint: string,
+  probe: ProviderProbeResult,
+): ProviderStabilityResult {
+  if (!existsSync(targets.stability)) {
+    throw new Error("完整比赛前必须在同一输出目录完成十步 Stability Probe");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(targets.stability, "utf8")) as unknown;
+  } catch {
+    throw new Error("stability-summary.json 无法读取或解析");
+  }
+  assertMatchingProviderStability(parsed, fingerprint, probe);
+  return parsed;
+}
+
 function writeMatchArtifacts(
   options: DirectCliOptions,
   output: Awaited<ReturnType<typeof runMatch>>,
   probe: ProviderProbeResult,
+  stability: ProviderStabilityResult,
   targets: ArtifactTargets,
 ): void {
   if (completedArtifacts(targets).length > 0) throw new Error("比赛产物已存在，拒绝覆盖");
@@ -543,6 +583,8 @@ function writeMatchArtifacts(
     maxOutputTokens: options.maxOutputTokens,
     probeSummaryHash: probe.probeSummaryHash,
     probeCreatedAt: probe.createdAt,
+    stabilitySummaryHash: stability.stabilitySummaryHash,
+    stabilityCreatedAt: stability.createdAt,
   }, output);
   for (const [label, artifact] of [["Replay", output.replay], ["Trace", output.traces], ["报告", report]] as const) {
     if (findPotentialSecrets(artifact).length > 0) throw new Error(`${label} 包含疑似凭据，已拒绝写入`);
@@ -630,10 +672,47 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (options.stabilityProbe) {
+    const gateDrivers = createConfiguredDrivers(options);
+    const fingerprint = probeFingerprint(options, gateDrivers);
+    const probe = readMatchingProbe(targets, fingerprint);
+    const recorder = createRecorder(options, "stability");
+    const drivers = createConfiguredDrivers(options, recorder);
+    let output: Awaited<ReturnType<typeof runMatch>>;
+    try {
+      output = await runMatch({
+        matchId: options.matchId,
+        seed: options.seed,
+        scenario: DEFAULT_SCENARIO,
+        drivers,
+        maxActionsPerAgent: STABILITY_ACTION_TARGET,
+        decisionTimeoutMs: options.decisionTimeoutMs,
+        totalWallClockMs: Math.min(
+          options.totalWallClockMs,
+          STABILITY_ACTION_TARGET * options.decisionTimeoutMs,
+        ),
+        slotRotationIndex: options.slotRotationIndex,
+        onProgress: writeLiveProgress,
+      });
+      const summary = buildProviderStabilityResult(output, fingerprint, probe);
+      if (findPotentialSecrets(summary).length > 0) {
+        throw new Error("Stability Probe 摘要包含疑似凭据，已拒绝写入");
+      }
+      await recorder?.flush();
+      atomicWriteJson(targets.stability, summary);
+      process.stdout.write(`${JSON.stringify(summary, null, 2)}\n`);
+      if (!summary.passed) throw new Error("十步 Stability Probe 未全部通过；未启动完整比赛");
+    } finally {
+      await recorder?.flush();
+    }
+    return;
+  }
+
   if (!options.confirmLiveRun) throw new Error("在线 Direct 对局必须显式传入 --confirm-live-run");
   const gateDrivers = createConfiguredDrivers(options);
   const fingerprint = probeFingerprint(options, gateDrivers);
   const probe = readMatchingProbe(targets, fingerprint);
+  const stability = readMatchingStability(targets, fingerprint, probe);
   const recorder = createRecorder(options, "match");
   const drivers = createConfiguredDrivers(options, recorder);
   let output: Awaited<ReturnType<typeof runMatch>>;
@@ -652,7 +731,7 @@ async function main(): Promise<void> {
   } finally {
     await recorder?.flush();
   }
-  writeMatchArtifacts(options, output, probe, targets);
+  writeMatchArtifacts(options, output, probe, stability, targets);
   buildOfflineReplay(targets);
   process.stdout.write(`Direct Arena 产物已写入：${options.outputDir}\n`);
   process.stdout.write(`离线页面：${targets.html}\n`);

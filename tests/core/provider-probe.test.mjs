@@ -69,7 +69,7 @@ function fingerprint(drivers) {
   });
 }
 
-test("Provider Probe v2 makes exactly five parallel requests and produces a verifiable summary", async () => {
+test("Provider Probe v3 makes exactly five parallel requests and produces a verifiable summary", async () => {
   const { drivers, calls, observations } = probeDrivers();
   const configFingerprint = fingerprint(drivers);
   const result = await probeProviders({
@@ -82,7 +82,8 @@ test("Provider Probe v2 makes exactly five parallel requests and produces a veri
     configFingerprint,
     createdAt: "2026-08-22T00:00:00.000Z",
   });
-  assert.equal(result.artifactType, "arena-provider-probe-v2");
+  assert.equal(result.artifactType, "arena-provider-probe-v3");
+  assert.equal(result.recoveryPolicyVersion, "bounded-retry-v1");
   assert.equal(result.passed, true);
   assert.equal(result.requestCount, 5);
   assert.deepEqual(calls, [1, 1, 1, 1, 1]);

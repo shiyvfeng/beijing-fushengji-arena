@@ -88,7 +88,7 @@ function normalizedProviderIdentity(value) {
 
 function validateDirectReplay(value, label) {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${label} 顶层必须是对象`);
-  if (value.schemaVersion !== "arena-schema-v3") throw new Error(`${label} 必须是 arena-schema-v3`);
+  if (value.schemaVersion !== "arena-schema-v4") throw new Error(`${label} 必须是 arena-schema-v4`);
   if (value?.metadata?.executionMode !== "direct") throw new Error(`${label} 必须是 Direct Replay`);
   if (value?.metadata?.agentCount !== 5 || value?.metadata?.totalDays !== 40) {
     throw new Error(`${label} metadata 必须声明五个 Agent 和 40 天`);
