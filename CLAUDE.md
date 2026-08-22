@@ -14,7 +14,7 @@
 
 产品范围、当前进度和已确认决策分别见：
 
-- `.doc/北京浮生记_Arena_娱乐化Benchmark产品与开发方案_v2.md`
+- `docs/北京浮生记_Arena_娱乐化Benchmark产品与开发方案_v2.md`
 - `docs/project-status.md`
 - `docs/arena-direct.md`
 - `docs/arena-direct-acceptance-2026-08-21.md`（仅历史四槽事实）
