@@ -2,10 +2,10 @@
 
 ## 当前结论
 
-- 新版真实金样仍为 `0/3`。历史完整比赛使用 `full-history-v1`、最高 reasoning effort 和零重试；旧门禁使用 `bounded-history-v1 + bounded-retry-v1`，Probe 5/5 但 Stability 仅 3/5；两类证据都不能计入当前 `bounded-retry-v2` 金样。
-- 标准目录 `dist/arena-direct/run-002` 当前已有 `bounded-retry-v2` 的新版 `probe-summary.json` 与 `stability-summary.json`，均为 5/5 且门禁绑定校验通过。目录中没有 Trace、Replay、Report、HTML 或正式浏览器报告。
+- 新版真实金样为 `1/3`。`bounded-retry-v2` 的正式 `run-002` 已完成事实产物、hash/凭据/原始交换对账、确定性重建和 Node 24 双视口浏览器验收，计为第一场金样。
+- 标准目录 `dist/arena-direct/run-002` 已包含 Probe、Stability、五 Trace、Replay v4、Report v5、单文件 HTML 与 `browser-acceptance.json`；两道在线门禁均为 5/5，正式浏览器验收 14/14。
 - 两份旧完整产物保存在独立诊断目录；最近一次开启原始交换的比赛被产品负责人要求停止，没有生成正式比赛产物。
-- v2 Probe 与十步 Stability 均经产品负责人分别明确授权并完成；正式比赛尚未授权、未启动。
+- v2 Probe、十步 Stability 与正式比赛均经产品负责人分别明确授权并完成；没有为追求零 DNF 或全员 Day 40 重跑。
 
 ## 已保留的真实诊断证据
 
@@ -13,8 +13,8 @@
 | --- | --- | --- |
 | `dist/arena-direct/run-002-attempt-01-network-suspected` | 完整旧策略比赛与浏览器报告 | 网络稳定性疑问下的历史诊断，不计金样 |
 | `dist/arena-direct/run-002-attempt-02-pre-live-diagnostics` | 128 请求、123 成功、5 失败、123 个有效动作、0 个环境非法动作；Replay v3、Report v4、浏览器 14/14 | 证明旧实现事实链与失败模式，不计金样 |
-| `dist/arena-diagnostics/arena-direct-v22-run-002/match` | 中止运行留下 84 个已完成脱敏原始 exchange：Anthropic 70、OpenAI 3、DeepSeek 2、Qwen 2、Kimi 7 | 定位延迟、输出截断和网络故障，不是比赛产物 |
-| `dist/arena-direct/run-002` | v2 Probe 5/5；v2 Stability 5/5，52 次请求、50 个有效动作 | 两道门禁均通过，可在单独授权后启动正式比赛；当前仍无比赛产物 |
+| `dist/arena-diagnostics/arena-direct-v22-run-002/match` | 同一 Match ID 下保留旧中止运行 84 份与本场 189 份脱敏原始 exchange | 旧 84 份继续用于历史诊断；本场 189 份按 `modelCallId` 与 Report 精确对账 |
+| `dist/arena-direct/run-002` | v2 Probe 5/5；v2 Stability 5/5；正式比赛 189 次请求、166 个有效动作；浏览器 14/14 | 第一场新版五模型金样，计数 `1/3` |
 
 旧完整比赛中五位选手最终均技术 DNF。OpenAI、Qwen、Kimi 出现单次 120 秒超时，DeepSeek 出现 `incomplete`，Anthropic 在推进到 Day 32 后超时。该场所有成功请求均能关联 action event，失败请求均能关联 technical termination；这些事实仍可用于工程诊断，但策略改版后不再具备金样可比性。
 
@@ -92,8 +92,33 @@ DeepSeek 第 6 个逻辑动作首尝试在 60002.392 ms 超时，未取得上游
 
 摘要 `passed=true`；`stabilitySummaryHash` 为 `sha256:9b80b1768e2a78fc1744b22d6da8318022bd9ab2c74fc1b7db477380c4fb9872`。Probe/Stability 绑定、配置指纹、两份 hash、52 条请求账本与 52 份本轮原始交换均校验通过；内置扫描与五组真实凭据精确扫描为 0 命中。该结果证明 v2 两类恢复路径在本轮真实调用中均能让模型继续完成目标，但不代表正式 160 动作比赛必然无失败。
 
+## `bounded-retry-v2` 正式比赛
+
+经产品负责人单独授权，正式 `run-002` 于 2026-08-22 22:22（Asia/Shanghai）完成。比赛使用 `arena-direct-v22-run-002`、seed `2026082202`、rotation `0`、五家 `low`、120 秒逻辑预算、60 秒尝试上限、4096 输出上限、`bounded-history-v1` 与 `bounded-retry-v2`。结果如下：
+
+| Provider | 终局 | 有效/无效动作 | 请求成功/失败 | 重试/恢复 | Token | 平均延迟 |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| OpenAI | Day 13 `model_timeout` 技术 DNF | 17/0 | 17/4 | 3/2 | 159320 | 16951.429 ms |
+| Anthropic | Day 40 完赛 | 77/0 | 77/0 | 0/0 | 342031 | 4608.118 ms |
+| DeepSeek | Day 7 `incomplete` 技术 DNF | 10/0 | 10/6 | 5/4 | 69861 | 47801.407 ms |
+| Qwen | Day 35 游戏内死亡 | 57/9 | 66/0 | 9/8 | 402786 | 20086.683 ms |
+| Kimi | Day 4 HTTP 429 技术 DNF | 5/0 | 5/4 | 3/2 | 13608 | 17079.971 ms |
+| **合计** | **1 完赛、1 死亡、3 技术 DNF** | **166/9** | **175/14** | **20/16** | **987606** | **15635.283 ms** |
+
+故障归属按事实保留：OpenAI 四次超时为 `undetermined`，不计模型失败；DeepSeek 五次超时后以 `incomplete` 终止，归属 `model` 并计模型失败；Kimi 四次 HTTP 429 归属 `provider`；Qwen 为游戏内死亡而非技术 DNF。Qwen 的 9 个环境无效动作中有 8 个决策通过有上限修复继续，错误次数未被吞掉。Anthropic 77 次请求全部成功并到达 Day 40。
+
+离线验收结论：
+
+- Probe、Stability、五份 Trace 与 Replay hash 均有效，Report 正确引用两道门禁和 Replay；Replay hash 为 `sha256:b7cf6662479de10aa7dd096a9c34449dca565130490203247c32498ba248e780`，fact hash 为 `sha256:5ae2d17c53b5f16c7fee752cb7425cd67f7d6fe2c8e70cafc2e4dce384ed2dcd`。
+- Report 中 189 个唯一 `modelCallId` 精确匹配本场 189 份脱敏原始交换，缺失和重复均为 0。诊断目录还保留同一 Match ID 的旧中止运行 84 份交换，对账时已按调用 ID 排除。
+- 内置敏感信息扫描为 0；对标准产物和诊断交换执行本机五组真实凭据精确扫描为 0 命中。
+- HTML SHA-256 为 `2668e6427f26b90858f766a6c67874ed36e8d5718122b8e21a179d6bb135214e`；重复重建与现有 HTML 字节一致。
+- Node 24.19.0、Playwright 1.62.1、Chromium 151.0.7922.34 的 `1366×768`、`1920×1080` 正式浏览器验收 14/14，通过 Day 1/39/40、防剧透、DNF、失败关闭、离线零远程请求、控制台、键盘、焦点和布局检查。
+
+该场存在死亡与技术 DNF，但事实链完整、故障可解释且正式浏览器验收通过；依据已确认口径计为第一场新版真实金样，不为追求零 DNF 重跑。
+
 ## 下一步
 
-1. v2 离线基线、脱敏配置检查、五请求 Probe 和十步 Stability 均已完成；本地基线未推送。
-2. 再次取得产品负责人明确授权后，才可启动正式 `run-002`；理论最多 2400 次请求，重试不延长单决策或总墙钟。
-3. 正式比赛结束后核验 Trace、Replay v4、Report v5、HTML、hash、凭据和确定性重建，再执行 Node 24 双视口浏览器验收；旧比赛产物不回填为 v2 金样。
+1. `run-002` 的门禁、正式比赛与离线/浏览器验收均已完成，金样计数 `1/3`；当前文档改动未提交、未推送。
+2. 下一场使用固定矩阵执行 `run-003`：Match ID `arena-direct-v22-run-003`、seed `2026082203`、rotation `1`；仍须分别取得 Probe、Stability/正式比赛授权。
+3. 不因 `run-002` 的死亡或技术 DNF 重跑；后续人工产品验收重点复核故障归属、Qwen 无效动作率及三场横向一致性。

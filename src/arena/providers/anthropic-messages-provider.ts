@@ -9,7 +9,7 @@ import {
   isProviderRecord,
   extractResponseModelRevision,
   normalizeProviderTokenUsage,
-  parseStrictJsonAction,
+  parseStrictJsonDecision,
   type ProviderResponseFacts,
   requireProviderValue,
   resolveProviderEndpoint,
@@ -27,6 +27,7 @@ export interface AnthropicMessagesProviderOptions {
   readonly model: string;
   readonly maxOutputTokens?: number;
   readonly reasoningEffort?: ProviderReasoningEffort;
+  readonly completionAssisted?: boolean;
   readonly declaredModelRevision?: string;
   readonly fetchImpl?: typeof globalThis.fetch;
   readonly exchangeRecorder?: RawExchangeRecorder;
@@ -96,6 +97,7 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
   readonly #endpoint: string;
   readonly #fetch: typeof globalThis.fetch;
   readonly #exchangeRecorder?: RawExchangeRecorder;
+  readonly #completionAssisted: boolean;
 
   constructor(options: AnthropicMessagesProviderOptions) {
     this.providerId = requireProviderValue(options.providerId ?? "anthropic", "providerId");
@@ -107,6 +109,7 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       this.providerId,
     );
     this.reasoningEffort = options.reasoningEffort ?? "default";
+    this.#completionAssisted = options.completionAssisted === true;
     if (!["default", "low", "medium", "high", "xhigh", "max"].includes(this.reasoningEffort)) {
       throw new Error("Anthropic reasoningEffort 配置无效");
     }
@@ -118,7 +121,7 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: this.maxOutputTokens,
-      jsonMode: "none",
+      jsonMode: this.#completionAssisted ? "json-schema" : "none",
       thinking: Object.freeze({ mode: "default", sent: false }),
       reasoningEffort: Object.freeze({
         level: this.reasoningEffort,
@@ -133,15 +136,33 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
   }
 
   async requestDecision(input: DirectModelDecisionInput) {
+    const dailyPlanContract = input.decisionContract?.kind === "daily-plan"
+      ? input.decisionContract
+      : undefined;
+    const outputConfig = {
+      ...(this.reasoningEffort === "default" ? {} : { effort: this.reasoningEffort }),
+      ...(this.#completionAssisted && dailyPlanContract ? {
+        format: {
+          type: "json_schema",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["planId", "destinationId"],
+            properties: {
+              planId: { type: "string", enum: dailyPlanContract.planIds },
+              destinationId: { type: "integer", enum: dailyPlanContract.destinationIds },
+            },
+          },
+        },
+      } : {}),
+    };
     const body = {
       model: this.modelId,
       max_tokens: this.maxOutputTokens,
       system: buildArenaSystemInstruction(input),
       messages: [{ role: "user", content: buildArenaUserContext(input) }],
       stream: false,
-      ...(this.reasoningEffort === "default"
-        ? {}
-        : { output_config: { effort: this.reasoningEffort } }),
+      ...(Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}),
     };
 
     const requestHeaders = {
@@ -187,12 +208,13 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
     });
 
     if (!response.ok) {
-      const code = await classifyHttpFailure(response);
+      const classification = await classifyHttpFailure(response);
       throw new DirectProviderRequestError(
         this.providerId,
-        code,
+        classification.code,
         `${this.providerId} Messages API 返回 HTTP ${response.status}`,
         response.status,
+        { retryDisposition: classification.retryDisposition },
       );
     }
 
@@ -242,7 +264,7 @@ export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
       ...(responseModelRevision ? { responseModelRevision } : {}),
       ...(usage ? { tokenUsage: usage } : {}),
     });
-    const action = parseStrictJsonAction(
+    const action = parseStrictJsonDecision(
       collectAnthropicText(payload, this.providerId, responseFacts),
       input,
       this.providerId,

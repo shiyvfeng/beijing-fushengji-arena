@@ -4,6 +4,10 @@ import type { DirectModelDecisionInput, ProviderTokenUsage } from "../agent-driv
 import { DirectProviderRequestError } from "../agent-driver.js";
 import { DirectGameActionContractError, parseDirectGameAction } from "../direct-driver.js";
 import {
+  DailyPlanSelectionContractError,
+  parseDailyPlanSelectionAgainstIds,
+} from "../completion-assisted.js";
+import {
   buildBoundedHistoryUserContext,
   DIRECT_SYSTEM_INSTRUCTION,
   serializeBoundedHistoryUserContext,
@@ -70,16 +74,35 @@ export function isProviderRecord(value: unknown): value is Record<string, unknow
 
 export async function classifyHttpFailure(
   response: Response,
-): Promise<"http_error" | "context_limit"> {
+): Promise<{
+  readonly code: "http_error" | "context_limit";
+  readonly retryDisposition: "transient" | "non_retryable";
+}> {
   let text = "";
   try {
-    text = (await response.clone().text()).toLowerCase();
+    text = (await response.clone().text()).slice(0, 32_768).toLowerCase();
   } catch {
-    return "http_error";
+    return {
+      code: "http_error",
+      retryDisposition: response.status === 408
+        || response.status === 429
+        || response.status >= 500
+        ? "transient"
+        : "non_retryable",
+    };
   }
-  return /context[_ -]?length|context window|maximum context|too many tokens|prompt is too long/u.test(text)
-    ? "context_limit"
-    : "http_error";
+  if (/context[_ -]?length|context window|maximum context|too many tokens|prompt is too long/u.test(text)) {
+    return { code: "context_limit", retryDisposition: "non_retryable" };
+  }
+  const quotaExhausted = /insufficient[_ -]?quota|quota[^\n]{0,80}(exhaust|exceed)|billing[^\n]{0,80}(limit|inactive)|credit[^\n]{0,80}(exhaust|insufficient)|insufficient[^\n]{0,40}(balance|credit)|余额不足|额度不足/u.test(text);
+  return {
+    code: "http_error",
+    retryDisposition: quotaExhausted
+      ? "non_retryable"
+      : response.status === 408 || response.status === 429 || response.status >= 500
+        ? "transient"
+        : "non_retryable",
+  };
 }
 
 export function extractResponseModelRevision(
@@ -135,6 +158,23 @@ export function parseStrictJsonAction(
   providerId: string,
   responseFacts: ProviderResponseFacts = {},
 ): GameAction {
+  const decision = parseStrictJsonDecision(text, input, providerId, responseFacts);
+  if (!decision || typeof decision !== "object" || !("type" in decision)) {
+    throw new DirectProviderRequestError(
+      providerId,
+      "invalid_action",
+      `${providerId} 返回了非 GameAction 决策`,
+    );
+  }
+  return decision as GameAction;
+}
+
+export function parseStrictJsonDecision(
+  text: string,
+  input: DirectModelDecisionInput,
+  providerId: string,
+  responseFacts: ProviderResponseFacts = {},
+): unknown {
   let candidate: unknown;
   try {
     candidate = JSON.parse(text.trim()) as unknown;
@@ -146,6 +186,29 @@ export function parseStrictJsonAction(
       undefined,
       { ...responseFacts, actionRepairCode: "invalid_json" },
     );
+  }
+
+  if (input.decisionContract?.kind === "daily-plan") {
+    try {
+      return parseDailyPlanSelectionAgainstIds(
+        candidate,
+        input.decisionContract.planIds,
+        input.decisionContract.destinationIds,
+      );
+    } catch (error: unknown) {
+      const contractError = error instanceof DailyPlanSelectionContractError ? error : undefined;
+      throw new DirectProviderRequestError(
+        providerId,
+        "invalid_action",
+        `${providerId} 返回的 Daily Plan 选择不符合 Arena 契约`,
+        undefined,
+        {
+          ...responseFacts,
+          actionRepairCode: contractError?.repairCode ?? "plan_fields_invalid",
+          rejectedAction: contractError?.rejectedSelection ?? candidate,
+        },
+      );
+    }
   }
 
   let action: GameAction;

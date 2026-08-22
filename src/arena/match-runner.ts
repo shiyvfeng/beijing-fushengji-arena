@@ -2,6 +2,7 @@ import type {
   ArenaExecutionMode,
   CompetitionAudit,
   EpisodeTrace,
+  MatchReliabilityAudit,
   MatchReplay,
   ScenarioConfig,
 } from "../core/contracts.js";
@@ -20,6 +21,20 @@ import {
   DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
   DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
 } from "./direct-context.js";
+import {
+  COMPLETION_ASSISTANCE_POLICY_VERSION,
+  COMPLETION_ATTEMPT_TIMEOUT_MS,
+  COMPLETION_BACKOFF_SCHEDULE_MS,
+  COMPLETION_CANDIDATE_POLICY_VERSION,
+  COMPLETION_CIRCUIT_FAILURE_THRESHOLD,
+  COMPLETION_CIRCUIT_SKIP_SCHEDULE_DAYS,
+  COMPLETION_DAILY_PLAN_POLICY_VERSION,
+  COMPLETION_MAX_ATTEMPTS_PER_DAY,
+  COMPLETION_MAX_PLAN_CANDIDATES,
+  COMPLETION_MAX_PREP_ACTIONS,
+  COMPLETION_PROVIDER_TIME_BUDGET_MS,
+  COMPLETION_RUN_TRACK,
+} from "./completion-assisted.js";
 
 export interface MatchRunConfig {
   readonly matchId: string;
@@ -30,6 +45,9 @@ export interface MatchRunConfig {
   readonly resetTimeoutMs?: number;
   readonly decisionTimeoutMs?: number;
   readonly totalWallClockMs?: number;
+  readonly completionAssisted?: boolean;
+  readonly providerTimeBudgetMs?: number;
+  readonly maxDailyDecisionsPerAgent?: number;
   readonly slotRotationIndex?: number;
   readonly onProgress?: EpisodeProgressReporter;
 }
@@ -153,13 +171,69 @@ function competitionAuditFor(
   const maxActions = config.maxActionsPerAgent ?? config.scenario.totalDays * 8;
   const decisionTimeoutMs = config.decisionTimeoutMs ?? 30_000;
   const totalWallClockMs = config.totalWallClockMs ?? maxActions * decisionTimeoutMs;
+  const completionAssisted = first.runTrack === COMPLETION_RUN_TRACK;
+  if (completionAssisted !== (config.completionAssisted === true)) {
+    throw new Error("Direct Match 的 Driver 与 Completion-Assisted 配置不一致");
+  }
+  if (completionAssisted) {
+    const maxDailyDecisions = config.maxDailyDecisionsPerAgent ?? config.scenario.totalDays;
+    if (!Number.isSafeInteger(maxDailyDecisions)
+      || maxDailyDecisions < 1
+      || maxDailyDecisions > config.scenario.totalDays) {
+      throw new Error("Completion-Assisted 每 Agent 日决策上限无效");
+    }
+    const providerTimeBudgetMs = config.providerTimeBudgetMs
+      ?? COMPLETION_PROVIDER_TIME_BUDGET_MS;
+    if (!Number.isSafeInteger(providerTimeBudgetMs) || providerTimeBudgetMs < 1) {
+      throw new Error("Completion-Assisted Provider 时间预算无效");
+    }
+    const attemptTimeoutMs = config.decisionTimeoutMs ?? COMPLETION_ATTEMPT_TIMEOUT_MS;
+    return Object.freeze({
+      fairnessClass: "controlled-exhibition",
+      runTrack: COMPLETION_RUN_TRACK,
+      decisionPolicyId: first.decisionPolicyId,
+      decisionPolicyHash: first.decisionPolicyHash,
+      modelObservationVersion: first.modelObservationVersion,
+      contextPolicyVersion: "bounded-daily-history-v1",
+      recoveryPolicyVersion: "completion-assisted-v1",
+      samplingPolicyVersion: first.samplingPolicyVersion,
+      dailyPlanPolicyVersion: COMPLETION_DAILY_PLAN_POLICY_VERSION,
+      candidatePolicyVersion: COMPLETION_CANDIDATE_POLICY_VERSION,
+      assistancePolicyVersion: COMPLETION_ASSISTANCE_POLICY_VERSION,
+      publicRandomization: "shared-seed",
+      personalRandomization: "slot-isolated",
+      slotRotation: Object.freeze({
+        version: "cyclic-v1",
+        rotationIndex,
+        mappings: Object.freeze(mappings),
+      }),
+      maxActionsPerAgent: maxDailyDecisions * (COMPLETION_MAX_PREP_ACTIONS + 1),
+      decisionTimeoutMs: attemptTimeoutMs,
+      attemptTimeoutMs,
+      totalWallClockMsPerAgent: providerTimeBudgetMs,
+      providerTimeBudgetMsPerAgent: providerTimeBudgetMs,
+      maxOutputTokensPerRequest: first.maxOutputTokensPerRequest,
+      maxAttemptsPerDecision: COMPLETION_MAX_ATTEMPTS_PER_DAY,
+      maxRepairRetriesPerDecision: 2,
+      maxTransientRetriesPerDecision: 2,
+      automaticRetries: 2,
+      maxDailyPlanCandidates: COMPLETION_MAX_PLAN_CANDIDATES,
+      maxDailyDecisionsPerAgent: maxDailyDecisions,
+      maxPrepActionsPerDay: COMPLETION_MAX_PREP_ACTIONS,
+      backoffScheduleMs: COMPLETION_BACKOFF_SCHEDULE_MS,
+      circuitBreaker: Object.freeze({
+        failureThresholdDays: COMPLETION_CIRCUIT_FAILURE_THRESHOLD,
+        skipScheduleDays: COMPLETION_CIRCUIT_SKIP_SCHEDULE_DAYS,
+      }),
+    });
+  }
   return Object.freeze({
     fairnessClass: "controlled-exhibition",
     decisionPolicyId: first.decisionPolicyId,
     decisionPolicyHash: first.decisionPolicyHash,
     modelObservationVersion: first.modelObservationVersion,
-    contextPolicyVersion: first.contextPolicyVersion,
-    recoveryPolicyVersion: first.recoveryPolicyVersion,
+    contextPolicyVersion: "bounded-history-v1",
+    recoveryPolicyVersion: "bounded-retry-v2",
     samplingPolicyVersion: first.samplingPolicyVersion,
     publicRandomization: "shared-seed",
     personalRandomization: "slot-isolated",
@@ -180,8 +254,19 @@ function competitionAuditFor(
   });
 }
 
-function limitationsFor(executionMode: ArenaExecutionMode): readonly string[] {
+function limitationsFor(
+  executionMode: ArenaExecutionMode,
+  competitionAudit?: CompetitionAudit,
+): readonly string[] {
   if (executionMode === "direct") {
+    if (competitionAudit?.runTrack === COMPLETION_RUN_TRACK) {
+      return Object.freeze([
+        "本次对局属于 completion-assisted-v1 独立轨道，不与 Strict Direct 金样混排。",
+        "模型每个游戏日从预验证候选中选择一个整日计划；Provider 或模型故障可触发显式辅助过日。",
+        "辅助日、重试、熔断与 Provider 时间预算进入可靠性评分卡，不改变游戏净资产计算。",
+        "硬完成保证只覆盖 Provider、网络与模型输出故障；Runner/integrity 缺陷仍失败关闭。",
+      ]);
+    }
     return Object.freeze([
       "本次对局经 DirectModelDriver 请求已配置的 Provider Adapter；Runner 不推断 Adapter 是在线模型还是测试替身。",
       "五个参赛者使用同一 neutral-v1 决策策略、bounded-history-v1 上下文、bounded-retry-v2 恢复策略与无身份模型观察；Provider、模型、slot 和审计 ID 不进入模型上下文。",
@@ -197,6 +282,26 @@ function limitationsFor(executionMode: ArenaExecutionMode): readonly string[] {
   ]);
 }
 
+function reliabilityAuditFor(
+  reports: readonly EpisodeRunReport[],
+  competitionAudit?: CompetitionAudit,
+): MatchReliabilityAudit | undefined {
+  if (competitionAudit?.runTrack !== COMPLETION_RUN_TRACK) return undefined;
+  const agents = reports.map(report => {
+    if (!report.reliability || !report.requestMetrics) {
+      throw new Error(`Completion-Assisted 缺少 ${report.agentId} 的可靠性账本`);
+    }
+    return Object.freeze({
+      agentId: report.agentId,
+      ...report.reliability,
+    });
+  }).sort((a, b) => a.agentId.localeCompare(b.agentId));
+  return Object.freeze({
+    policyVersion: "completion-reliability-v1" as const,
+    agents: Object.freeze(agents),
+  });
+}
+
 export async function runMatch(config: MatchRunConfig): Promise<MatchRunOutput> {
   const executionMode = validateDrivers(config.drivers);
   const competitionAudit = competitionAuditFor(config, executionMode);
@@ -209,15 +314,23 @@ export async function runMatch(config: MatchRunConfig): Promise<MatchRunOutput> 
     ...(config.resetTimeoutMs !== undefined ? { resetTimeoutMs: config.resetTimeoutMs } : {}),
     ...(config.decisionTimeoutMs !== undefined ? { decisionTimeoutMs: config.decisionTimeoutMs } : {}),
     ...(config.totalWallClockMs !== undefined ? { totalWallClockMs: config.totalWallClockMs } : {}),
+    ...(config.completionAssisted ? {
+      completionAssisted: true,
+      providerTimeBudgetMs: config.providerTimeBudgetMs ?? COMPLETION_PROVIDER_TIME_BUDGET_MS,
+      maxDailyDecisions: config.maxDailyDecisionsPerAgent ?? config.scenario.totalDays,
+    } : {}),
     ...(config.onProgress ? { onProgress: config.onProgress } : {}),
   })));
   outputs.sort((a, b) => a.trace.agentSlot - b.trace.agentSlot);
   const traces = outputs.map(output => output.trace);
+  const episodeReports = outputs.map(output => output.report);
+  const reliabilityAudit = reliabilityAuditFor(episodeReports, competitionAudit);
   const replay = assembleMatchReplay(
     config.matchId,
     traces,
     config.scenario,
     competitionAudit,
+    reliabilityAudit,
   );
   return {
     traces,
@@ -225,8 +338,8 @@ export async function runMatch(config: MatchRunConfig): Promise<MatchRunOutput> 
     report: Object.freeze({
       executionMode,
       ...(competitionAudit ? { competitionAudit } : {}),
-      episodeReports: outputs.map(output => output.report),
-      limitations: limitationsFor(executionMode),
+      episodeReports,
+      limitations: limitationsFor(executionMode, competitionAudit),
     }),
   };
 }

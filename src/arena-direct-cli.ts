@@ -17,6 +17,11 @@ import type { RawExchangeRecorder } from "./arena/diagnostics.js";
 import { createRawExchangeRecorder } from "./arena/diagnostics.js";
 import { DEFAULT_DIRECT_AGENT_SPECS, DirectModelDriver } from "./arena/direct-driver.js";
 import type { EpisodeProgressEvent } from "./arena/episode-runner.js";
+import {
+  COMPLETION_MAX_ATTEMPTS_PER_DAY,
+  COMPLETION_PROVIDER_TIME_BUDGET_MS,
+  COMPLETION_RUN_TRACK,
+} from "./arena/completion-assisted.js";
 import { runMatch } from "./arena/match-runner.js";
 import {
   assertMatchingProviderProbe,
@@ -68,6 +73,7 @@ const ENV_FILE_ALLOWLIST = new Set<string>([
   "ARENA_MAX_ACTIONS_PER_AGENT",
   "ARENA_DECISION_TIMEOUT_MS",
   "ARENA_TOTAL_WALL_CLOCK_MS",
+  "ARENA_PROVIDER_TIME_BUDGET_MS",
   "ARENA_MAX_OUTPUT_TOKENS",
   "ARENA_SLOT_ROTATION_INDEX",
   "ARENA_SAVE_RAW_EXCHANGES",
@@ -81,6 +87,7 @@ interface DirectCliOptions {
   readonly maxActionsPerAgent: number;
   readonly decisionTimeoutMs: number;
   readonly totalWallClockMs: number;
+  readonly providerTimeBudgetMs: number;
   readonly maxOutputTokens: number;
   readonly slotRotationIndex: number;
   readonly saveRawExchanges: boolean;
@@ -88,6 +95,7 @@ interface DirectCliOptions {
   readonly checkConfig: boolean;
   readonly probeProviders: boolean;
   readonly stabilityProbe: boolean;
+  readonly completionAssisted: boolean;
 }
 
 interface EnvFileSelection {
@@ -126,15 +134,18 @@ function usage(): string {
     "  --max-actions-per-agent <40..320>",
     "  --decision-timeout-ms <1..600000>",
     "  --total-wall-clock-ms <1..2147483647>",
+    "  --provider-time-budget-ms <1..2147483647>  Assisted 每 Agent 请求与退避预算",
     "  --max-output-tokens <16..4096>",
     "  --slot-rotation-index <0..4>",
+    "  --completion-assisted             显式启用 completion-assisted-v1 独立轨道",
     "  --probe-providers                 五组并行各请求一次并原子写 probe-summary.json",
-    "  --stability-probe                 五组并行各完成 10 个有效动作并写 stability-summary.json",
+    "  --stability-probe                 五组并行各完成 10 个自主游戏日并写 stability-summary.json",
     "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe + Stability 门禁",
     "  --check-config                    脱敏检查，不联网、不写产物",
     "  --help",
     "",
-    `正式比赛理论最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} × 3 = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT * 3}；重试不延长单决策总时限。`,
+    `Strict 正式比赛理论最多请求：${AGENT_COUNT} × ${DEFAULT_MAX_ACTIONS_PER_AGENT} × 3 = ${AGENT_COUNT * DEFAULT_MAX_ACTIONS_PER_AGENT * 3}。`,
+    `Completion-Assisted 正常约 ${AGENT_COUNT} × 40 = 200 次；失败日最多 ${COMPLETION_MAX_ATTEMPTS_PER_DAY} 次并受 45 分钟 Provider 预算约束。`,
     "正式比赛实时输出 arena-live-progress-v1 JSONL；只含脱敏事实与请求统计。",
     "ARENA_SAVE_RAW_EXCHANGES 默认为 false；开启后诊断只写 dist/arena-diagnostics。",
   ].join("\n");
@@ -262,6 +273,12 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let maxActionsPerAgent = envInteger("ARENA_MAX_ACTIONS_PER_AGENT", DEFAULT_MAX_ACTIONS_PER_AGENT, 40, 320);
   let decisionTimeoutMs = envInteger("ARENA_DECISION_TIMEOUT_MS", DEFAULT_DECISION_TIMEOUT_MS, 1, 600_000);
   let totalWallClockOverride = process.env.ARENA_TOTAL_WALL_CLOCK_MS?.trim() ?? "";
+  let providerTimeBudgetMs = envInteger(
+    "ARENA_PROVIDER_TIME_BUDGET_MS",
+    COMPLETION_PROVIDER_TIME_BUDGET_MS,
+    1,
+    2_147_483_647,
+  );
   let maxOutputTokens = envInteger("ARENA_MAX_OUTPUT_TOKENS", DEFAULT_MAX_OUTPUT_TOKENS, 16, 4_096);
   let slotRotationIndex = envInteger("ARENA_SLOT_ROTATION_INDEX", 0, 0, 4);
   const saveRawExchanges = parseBoolean(process.env.ARENA_SAVE_RAW_EXCHANGES, "ARENA_SAVE_RAW_EXCHANGES");
@@ -269,6 +286,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let checkConfig = false;
   let probeProviderConnections = false;
   let stabilityProbe = false;
+  let completionAssisted = false;
 
   for (let index = 0; index < args.length; index++) {
     const argument = args[index];
@@ -287,6 +305,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--stability-probe") {
       stabilityProbe = true;
+      continue;
+    }
+    if (argument === "--completion-assisted") {
+      completionAssisted = true;
       continue;
     }
     const agentModelIndex = AGENT_MODEL_OPTIONS.indexOf(argument);
@@ -322,6 +344,16 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--total-wall-clock-ms") {
       totalWallClockOverride = readValue(args, index, argument);
+      index++;
+      continue;
+    }
+    if (argument === "--provider-time-budget-ms") {
+      providerTimeBudgetMs = parseInteger(
+        readValue(args, index, argument),
+        argument,
+        1,
+        2_147_483_647,
+      );
       index++;
       continue;
     }
@@ -389,7 +421,9 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     throw new Error("Probe、Stability Probe 或完整比赛必须指定 --output-dir / ARENA_OUTPUT_DIR");
   }
   const validatedOutputDir = outputDir ? validateOutputDirectory(outputDir) : undefined;
-  matchId = validateMatchId(matchId || `arena-direct-${seed}`);
+  matchId = validateMatchId(matchId || (completionAssisted
+    ? `arena-completion-assisted-${seed}`
+    : `arena-direct-${seed}`));
   return {
     seed,
     agents,
@@ -398,6 +432,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     maxActionsPerAgent,
     decisionTimeoutMs,
     totalWallClockMs,
+    providerTimeBudgetMs,
     maxOutputTokens,
     slotRotationIndex,
     saveRawExchanges,
@@ -405,6 +440,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     checkConfig,
     probeProviders: probeProviderConnections,
     stabilityProbe,
+    completionAssisted,
   };
 }
 
@@ -449,8 +485,14 @@ function createConfiguredDrivers(
     const slot = (entryIndex + options.slotRotationIndex) % AGENT_COUNT;
     const provider = createDirectProviderAdapter(options.agents[entryIndex], {
       ...(recorder ? { exchangeRecorder: recorder } : {}),
+      completionAssisted: options.completionAssisted,
     });
-    return new DirectModelDriver({ id: spec.id, slot, provider });
+    return new DirectModelDriver({
+      id: spec.id,
+      slot,
+      provider,
+      completionAssisted: options.completionAssisted,
+    });
   });
 }
 
@@ -477,6 +519,9 @@ function probeFingerprint(options: DirectCliOptions, drivers: readonly DirectMod
     totalWallClockMs: options.totalWallClockMs,
     maxOutputTokens: options.maxOutputTokens,
     slotRotationIndex: options.slotRotationIndex,
+    completionAssisted: options.completionAssisted,
+    providerTimeBudgetMs: options.providerTimeBudgetMs,
+    maxDailyDecisionsPerAgent: DEFAULT_SCENARIO.totalDays,
   });
 }
 
@@ -492,20 +537,27 @@ function configurationSummary(options: DirectCliOptions): string {
   ]);
   return [
     "Direct 五模型配置：",
+    `  运行轨: ${options.completionAssisted ? COMPLETION_RUN_TRACK : "strict-direct-v1"}`,
     `  matchId: ${options.matchId}`,
     ...agentLines,
     ...(options.outputDir ? [`  输出目录: ${options.outputDir}`] : []),
     `  slot 轮换: cyclic-v1 / ${options.slotRotationIndex}`,
     `  单次决策时限: ${options.decisionTimeoutMs} ms`,
-    `  单次尝试时限: ${Math.max(1, Math.floor(options.decisionTimeoutMs / 2))} ms`,
-    `  每 Agent 总墙钟: ${options.totalWallClockMs} ms`,
+    `  单次尝试时限: ${options.completionAssisted
+      ? options.decisionTimeoutMs
+      : Math.max(1, Math.floor(options.decisionTimeoutMs / 2))} ms`,
+    ...(options.completionAssisted
+      ? [`  每 Agent Provider 请求与退避预算: ${options.providerTimeBudgetMs} ms`]
+      : [`  每 Agent 总墙钟: ${options.totalWallClockMs} ms`]),
     `  单次输出上限: ${options.maxOutputTokens} tokens`,
     `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
     ...(options.saveRawExchanges
       ? [`  诊断目录: dist/arena-diagnostics/${options.matchId}/{probe,stability,match}`]
       : []),
     "  实时进度: arena-live-progress-v1 JSONL（仅脱敏事实字段）",
-    "  恢复策略: bounded-retry-v2（每决策最多 3 次；修复重试 2 次；瞬态重试 1 次；携带脱敏具体反馈）",
+    options.completionAssisted
+      ? "  恢复策略: completion-assisted-v1（每游戏日最多 3 次；15/45 秒退避；2/4/8 日熔断；显式辅助过日）"
+      : "  恢复策略: bounded-retry-v2（每决策最多 3 次；修复重试 2 次；瞬态重试 1 次；携带脱敏具体反馈）",
   ].join("\n");
 }
 
@@ -534,7 +586,11 @@ function createRecorder(options: DirectCliOptions, phase: "probe" | "stability" 
   });
 }
 
-function readMatchingProbe(targets: ArtifactTargets, fingerprint: string): ProviderProbeResult {
+function readMatchingProbe(
+  targets: ArtifactTargets,
+  fingerprint: string,
+  completionAssisted: boolean,
+): ProviderProbeResult {
   if (!existsSync(targets.probe)) {
     throw new Error("完整比赛前必须在同一输出目录完成 Provider Probe");
   }
@@ -544,7 +600,7 @@ function readMatchingProbe(targets: ArtifactTargets, fingerprint: string): Provi
   } catch {
     throw new Error("probe-summary.json 无法读取或解析");
   }
-  assertMatchingProviderProbe(parsed, fingerprint);
+  assertMatchingProviderProbe(parsed, fingerprint, completionAssisted);
   return parsed;
 }
 
@@ -581,6 +637,11 @@ function writeMatchArtifacts(
     decisionTimeoutMs: options.decisionTimeoutMs,
     totalWallClockMs: options.totalWallClockMs,
     maxOutputTokens: options.maxOutputTokens,
+    completionAssisted: options.completionAssisted,
+    ...(options.completionAssisted ? {
+      maxDailyDecisionsPerAgent: DEFAULT_SCENARIO.totalDays,
+      providerTimeBudgetMs: options.providerTimeBudgetMs,
+    } : {}),
     probeSummaryHash: probe.probeSummaryHash,
     probeCreatedAt: probe.createdAt,
     stabilitySummaryHash: stability.stabilitySummaryHash,
@@ -658,6 +719,7 @@ async function main(): Promise<void> {
         decisionTimeoutMs: options.decisionTimeoutMs,
         slotRotationIndex: options.slotRotationIndex,
         configFingerprint: fingerprint,
+        completionAssisted: options.completionAssisted,
       });
       if (findPotentialSecrets(summary).length > 0) {
         throw new Error("Probe 摘要包含疑似凭据，已拒绝写入");
@@ -675,7 +737,7 @@ async function main(): Promise<void> {
   if (options.stabilityProbe) {
     const gateDrivers = createConfiguredDrivers(options);
     const fingerprint = probeFingerprint(options, gateDrivers);
-    const probe = readMatchingProbe(targets, fingerprint);
+    const probe = readMatchingProbe(targets, fingerprint, options.completionAssisted);
     const recorder = createRecorder(options, "stability");
     const drivers = createConfiguredDrivers(options, recorder);
     let output: Awaited<ReturnType<typeof runMatch>>;
@@ -685,12 +747,20 @@ async function main(): Promise<void> {
         seed: options.seed,
         scenario: DEFAULT_SCENARIO,
         drivers,
-        maxActionsPerAgent: STABILITY_ACTION_TARGET,
+        ...(options.completionAssisted
+          ? {
+            completionAssisted: true,
+            maxDailyDecisionsPerAgent: STABILITY_ACTION_TARGET,
+            providerTimeBudgetMs: options.providerTimeBudgetMs,
+          }
+          : { maxActionsPerAgent: STABILITY_ACTION_TARGET }),
         decisionTimeoutMs: options.decisionTimeoutMs,
-        totalWallClockMs: Math.min(
-          options.totalWallClockMs,
-          STABILITY_ACTION_TARGET * options.decisionTimeoutMs,
-        ),
+        ...(!options.completionAssisted ? {
+          totalWallClockMs: Math.min(
+            options.totalWallClockMs,
+            STABILITY_ACTION_TARGET * options.decisionTimeoutMs,
+          ),
+        } : {}),
         slotRotationIndex: options.slotRotationIndex,
         onProgress: writeLiveProgress,
       });
@@ -711,7 +781,7 @@ async function main(): Promise<void> {
   if (!options.confirmLiveRun) throw new Error("在线 Direct 对局必须显式传入 --confirm-live-run");
   const gateDrivers = createConfiguredDrivers(options);
   const fingerprint = probeFingerprint(options, gateDrivers);
-  const probe = readMatchingProbe(targets, fingerprint);
+  const probe = readMatchingProbe(targets, fingerprint, options.completionAssisted);
   const stability = readMatchingStability(targets, fingerprint, probe);
   const recorder = createRecorder(options, "match");
   const drivers = createConfiguredDrivers(options, recorder);
@@ -722,9 +792,15 @@ async function main(): Promise<void> {
       seed: options.seed,
       scenario: DEFAULT_SCENARIO,
       drivers,
-      maxActionsPerAgent: options.maxActionsPerAgent,
       decisionTimeoutMs: options.decisionTimeoutMs,
-      totalWallClockMs: options.totalWallClockMs,
+      ...(options.completionAssisted ? {
+        completionAssisted: true,
+        maxDailyDecisionsPerAgent: DEFAULT_SCENARIO.totalDays,
+        providerTimeBudgetMs: options.providerTimeBudgetMs,
+      } : {
+        maxActionsPerAgent: options.maxActionsPerAgent,
+        totalWallClockMs: options.totalWallClockMs,
+      }),
       slotRotationIndex: options.slotRotationIndex,
       onProgress: writeLiveProgress,
     });

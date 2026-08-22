@@ -6,6 +6,8 @@ import type {
   TechnicalFailureDetail,
 } from "../core/contracts.js";
 import type { ArenaModelCallAudit } from "./agent-driver.js";
+import { COMPLETION_RUN_TRACK, completionRate } from "./completion-assisted.js";
+import type { ReliabilityScorecard } from "./episode-runner.js";
 import type { MatchRunOutput } from "./match-runner.js";
 
 export interface LatencyStatistics {
@@ -47,11 +49,13 @@ export interface ArenaRunAgentReport {
   };
   readonly latency: LatencyStatistics;
   readonly modelCalls: readonly ArenaModelCallAudit[];
+  readonly reliability?: ReliabilityScorecard;
 }
 
 export interface ArenaDirectRunReport {
-  readonly artifactType: "arena-direct-run-report-v5";
+  readonly artifactType: "arena-direct-run-report-v5" | "arena-direct-run-report-v6";
   readonly executionMode: "direct";
+  readonly runTrack?: typeof COMPLETION_RUN_TRACK;
   readonly matchId: string;
   readonly seed: number;
   readonly replayHash: string;
@@ -63,6 +67,7 @@ export interface ArenaDirectRunReport {
     readonly summaryHash: string;
     readonly createdAt: string;
     readonly actionTargetPerAgent: 10;
+    readonly autonomousDayTargetPerAgent?: 10;
   };
   readonly competitionAudit: NonNullable<MatchRunOutput["replay"]["competitionAudit"]>;
   readonly limits: {
@@ -75,8 +80,12 @@ export interface ArenaDirectRunReport {
     readonly maxOutputTokensPerRequest: number;
     readonly maxAttemptsPerDecision: 3;
     readonly maxRepairRetriesPerDecision: 2;
-    readonly maxTransientRetriesPerDecision: 1;
+    readonly maxTransientRetriesPerDecision: 1 | 2;
     readonly automaticRetries: 2;
+    readonly maxDailyDecisionsPerAgent?: number;
+    readonly providerTimeBudgetMsPerAgent?: number;
+    readonly maxDailyPlanCandidates?: 128;
+    readonly maxPrepActionsPerDay?: 2;
   };
   readonly totals: {
     readonly requestCount: number;
@@ -98,6 +107,7 @@ export interface ArenaDirectRunReport {
       readonly requestsWithoutUsage: number;
     };
     readonly latency: LatencyStatistics;
+    readonly reliability?: ReliabilityScorecard;
   };
   readonly agents: readonly ArenaRunAgentReport[];
   readonly cost: {
@@ -114,6 +124,9 @@ interface RunReportOptions {
   readonly decisionTimeoutMs: number;
   readonly totalWallClockMs: number;
   readonly maxOutputTokens: number;
+  readonly completionAssisted?: boolean;
+  readonly maxDailyDecisionsPerAgent?: number;
+  readonly providerTimeBudgetMs?: number;
   readonly probeSummaryHash: string;
   readonly probeCreatedAt: string;
   readonly stabilitySummaryHash: string;
@@ -163,7 +176,12 @@ function verifyCallLinks(
   if (!trace) throw new Error(`缺少 Agent ${agentId} 的 Trace`);
   const events = new Map(trace.events.map(event => [event.id, event]));
   for (const call of calls) {
-    const links = [call.actionEventId, call.terminationEventId, call.retryReason].filter(Boolean);
+    const links = [
+      call.actionEventIds.length > 0,
+      call.assistanceEventId,
+      call.terminationEventId,
+      call.retryReason,
+    ].filter(Boolean);
     if (links.length !== 1) {
       throw new Error(`modelCallId ${call.modelCallId} 必须恰好关联一个 action、technical termination 或 retry`);
     }
@@ -175,17 +193,49 @@ function verifyCallLinks(
       }
       continue;
     }
-    const eventId = call.actionEventId ?? call.terminationEventId;
+    if (call.actionEventIds.length > 0) {
+      if (call.status !== "succeeded") {
+        throw new Error(`modelCallId ${call.modelCallId} 的成功动作关联了失败调用`);
+      }
+      const actualActionEventIds = trace.events
+        .filter(event => event.type === "action" && event.modelCallId === call.modelCallId)
+        .map(event => event.id);
+      if (actualActionEventIds.length !== call.actionEventIds.length
+        || actualActionEventIds.some((eventId, index) => eventId !== call.actionEventIds[index])) {
+        throw new Error(`modelCallId ${call.modelCallId} 的整日动作账本不完整`);
+      }
+      for (const [index, eventId] of call.actionEventIds.entries()) {
+        const event = events.get(eventId);
+        if (!event
+          || event.type !== "action"
+          || event.modelCallId !== call.modelCallId
+          || event.fullContextHash !== call.fullContextHash
+          || (index === 0 && event.observationHash !== call.observationHash)) {
+          throw new Error(`modelCallId ${call.modelCallId} 的动作 Trace 证据无法对账`);
+        }
+        if (index > 0) {
+          const previous = events.get(call.actionEventIds[index - 1]);
+          if (!previous || event.sequence !== previous.sequence + 1) {
+            throw new Error(`modelCallId ${call.modelCallId} 的整日动作事件不连续`);
+          }
+        }
+      }
+      continue;
+    }
+    const eventId = call.assistanceEventId ?? call.terminationEventId;
     const event = eventId ? events.get(eventId) : undefined;
-    if (!event
+    if (!event) throw new Error(`modelCallId ${call.modelCallId} 的 Trace 证据无法对账`);
+    if (call.assistanceEventId) {
+      if (call.status !== "failed"
+        || event.type !== "assistance"
+        || !event.assistance?.triggerModelCallIds.includes(call.modelCallId)) {
+        throw new Error(`modelCallId ${call.modelCallId} 的辅助事件证据无效`);
+      }
+    } else if (event.type !== "technical_termination"
       || event.modelCallId !== call.modelCallId
       || event.fullContextHash !== call.fullContextHash
       || event.observationHash !== call.observationHash) {
-      throw new Error(`modelCallId ${call.modelCallId} 的 Trace 证据无法对账`);
-    }
-    if ((call.actionEventId && event.type !== "action")
-      || (call.terminationEventId && event.type !== "technical_termination")) {
-      throw new Error(`modelCallId ${call.modelCallId} 的事件类型不匹配`);
+      throw new Error(`modelCallId ${call.modelCallId} 的终止事件证据无效`);
     }
   }
 }
@@ -199,13 +249,22 @@ export function buildDirectRunReport(
   }
   if (output.replay.agents.length !== 5) throw new Error("Direct run-report 必须包含五个 Agent");
   const audit = output.replay.competitionAudit;
-  if (options.matchId !== output.replay.matchId
+  const completionAssisted = audit.runTrack === COMPLETION_RUN_TRACK;
+  if (completionAssisted !== (options.completionAssisted === true)
+    || options.matchId !== output.replay.matchId
     || options.seed !== output.replay.seed
-    || options.maxActionsPerAgent !== audit.maxActionsPerAgent
     || options.decisionTimeoutMs !== audit.decisionTimeoutMs
-    || options.totalWallClockMs !== audit.totalWallClockMsPerAgent
     || options.maxOutputTokens !== audit.maxOutputTokensPerRequest) {
     throw new Error("Direct run-report 配置与 Replay competitionAudit 不一致");
+  }
+  if (completionAssisted) {
+    if (options.maxDailyDecisionsPerAgent !== audit.maxDailyDecisionsPerAgent
+      || options.providerTimeBudgetMs !== audit.providerTimeBudgetMsPerAgent) {
+      throw new Error("Completion-Assisted run-report 的日数或 Provider 时间预算不一致");
+    }
+  } else if (options.maxActionsPerAgent !== audit.maxActionsPerAgent
+    || options.totalWallClockMs !== audit.totalWallClockMsPerAgent) {
+    throw new Error("Strict Direct run-report 的动作或墙钟预算不一致");
   }
   if (!/^sha256:[0-9a-f]{64}$/u.test(options.probeSummaryHash)
     || Number.isNaN(Date.parse(options.probeCreatedAt))
@@ -222,13 +281,6 @@ export function buildDirectRunReport(
     }
     const calls = metrics.calls;
     verifyCallLinks(agent.id, calls, output);
-    const trace = output.traces.find(item => item.agentId === agent.id)!;
-    const eventById = new Map(trace.events.map(event => [event.id, event]));
-    const actionEvents = calls.flatMap(call => {
-      if (!call.actionEventId) return [];
-      const event = eventById.get(call.actionEventId);
-      return event ? [event] : [];
-    });
     const failures = calls.flatMap(call => call.failure ? [call.failure] : []);
     const usage = calls.flatMap(call => call.tokenUsage ? [call.tokenUsage] : []);
     const technicalFailure = episode.technicalFailure ?? null;
@@ -258,8 +310,8 @@ export function buildDirectRunReport(
       )).length,
       retryAttempts: metrics.retryAttemptCount,
       recoveredDecisions: episode.recoveredDecisionCount,
-      validActions: actionEvents.filter(event => event.result.success).length,
-      invalidActions: actionEvents.filter(event => !event.result.success).length,
+      validActions: episode.validActionCount,
+      invalidActions: episode.invalidActionCount,
       dnf: !agent.rankEligible,
       exitDay: agent.finalResult.endDay,
       status: agent.status,
@@ -275,10 +327,49 @@ export function buildDirectRunReport(
       }),
       latency: latencyFor(calls),
       modelCalls: calls,
+      ...(episode.reliability ? { reliability: episode.reliability } : {}),
     });
   });
   const allCalls = agents.flatMap(agent => agent.modelCalls);
   const usage = allCalls.flatMap(call => call.tokenUsage ? [call.tokenUsage] : []);
+  const reliabilityValues = agents.flatMap(agent => agent.reliability ? [agent.reliability] : []);
+  const reliability = completionAssisted
+    ? (() => {
+      if (reliabilityValues.length !== agents.length) {
+        throw new Error("Completion-Assisted run-report 缺少可靠性评分卡");
+      }
+      const sum = <K extends keyof ReliabilityScorecard>(key: K): number => (
+        reliabilityValues.reduce((total, item) => total + Number(item[key]), 0)
+      );
+      const advancedDays = sum("advancedDays");
+      const autonomousDays = sum("autonomousDays");
+      const assistedDays = sum("assistedDays");
+      const providerAttemptedDays = sum("providerAttemptedDays");
+      const firstAttemptSuccessDays = sum("firstAttemptSuccessDays");
+      const validPlanSelections = sum("validPlanSelections");
+      const selectionResponseCount = sum("selectionResponseCount");
+      const providerRequests = allCalls.length;
+      const providerSuccesses = allCalls.filter(call => call.status === "succeeded").length;
+      return Object.freeze({
+        advancedDays,
+        autonomousDays,
+        assistedDays,
+        autonomousDayRate: completionRate(autonomousDays, advancedDays),
+        providerAttemptedDays,
+        firstAttemptSuccessDays,
+        firstAttemptSuccessRate: completionRate(firstAttemptSuccessDays, providerAttemptedDays),
+        validPlanSelections,
+        selectionResponseCount,
+        validSelectionRate: completionRate(validPlanSelections, selectionResponseCount),
+        providerRequestSuccessRate: completionRate(providerSuccesses, providerRequests),
+        providerWaitMs: sum("providerWaitMs"),
+        retryCount: sum("retryCount"),
+        circuitSkippedDays: sum("circuitSkippedDays"),
+        providerBudgetExhaustedDays: sum("providerBudgetExhaustedDays"),
+        assistanceReasons: mergeCounts(reliabilityValues.map(item => item.assistanceReasons)),
+      });
+    })()
+    : undefined;
   const totals = Object.freeze({
     requestCount: allCalls.length,
     successfulRequests: allCalls.filter(call => call.status === "succeeded").length,
@@ -299,10 +390,14 @@ export function buildDirectRunReport(
       requestsWithoutUsage: allCalls.filter(call => call.usageMissing).length,
     }),
     latency: latencyFor(allCalls),
+    ...(reliability ? { reliability } : {}),
   });
   return Object.freeze({
-    artifactType: "arena-direct-run-report-v5",
+    artifactType: completionAssisted
+      ? "arena-direct-run-report-v6"
+      : "arena-direct-run-report-v5",
     executionMode: "direct",
+    ...(completionAssisted ? { runTrack: COMPLETION_RUN_TRACK } : {}),
     matchId: options.matchId,
     seed: options.seed,
     replayHash: output.replay.replayHash,
@@ -314,20 +409,31 @@ export function buildDirectRunReport(
       summaryHash: options.stabilitySummaryHash,
       createdAt: options.stabilityCreatedAt,
       actionTargetPerAgent: 10 as const,
+      ...(completionAssisted ? { autonomousDayTargetPerAgent: 10 as const } : {}),
     }),
     competitionAudit: audit,
     limits: Object.freeze({
       agents: 5 as const,
-      maxActionsPerAgent: options.maxActionsPerAgent,
-      maxModelRequests: 5 * options.maxActionsPerAgent * audit.maxAttemptsPerDecision,
+      maxActionsPerAgent: audit.maxActionsPerAgent,
+      maxModelRequests: 5 * (completionAssisted
+        ? audit.maxDailyDecisionsPerAgent
+        : options.maxActionsPerAgent) * audit.maxAttemptsPerDecision,
       decisionTimeoutMs: options.decisionTimeoutMs,
       attemptTimeoutMs: audit.attemptTimeoutMs,
-      totalWallClockMsPerAgent: options.totalWallClockMs,
+      totalWallClockMsPerAgent: completionAssisted
+        ? audit.providerTimeBudgetMsPerAgent
+        : options.totalWallClockMs,
       maxOutputTokensPerRequest: options.maxOutputTokens,
       maxAttemptsPerDecision: 3 as const,
       maxRepairRetriesPerDecision: 2 as const,
-      maxTransientRetriesPerDecision: 1 as const,
+      maxTransientRetriesPerDecision: audit.maxTransientRetriesPerDecision,
       automaticRetries: 2 as const,
+      ...(completionAssisted ? {
+        maxDailyDecisionsPerAgent: audit.maxDailyDecisionsPerAgent,
+        providerTimeBudgetMsPerAgent: audit.providerTimeBudgetMsPerAgent,
+        maxDailyPlanCandidates: audit.maxDailyPlanCandidates,
+        maxPrepActionsPerDay: audit.maxPrepActionsPerDay,
+      } : {}),
     }),
     totals,
     agents: Object.freeze(agents),

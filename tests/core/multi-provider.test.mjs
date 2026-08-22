@@ -12,9 +12,35 @@ import {
   normalizeProviderReasoningEffort,
   normalizeProviderThinkingMode,
 } from "../../dist/arena/providers/provider-factory.js";
-import { normalizeProviderTokenUsage } from "../../dist/arena/providers/provider-utils.js";
+import {
+  classifyHttpFailure,
+  normalizeProviderTokenUsage,
+} from "../../dist/arena/providers/provider-utils.js";
 
 const TEST_API_KEY = "sk-multi-provider-secret-123456789";
+
+test("HTTP recovery classification separates transient rate limits from exhausted quota", async () => {
+  assert.deepEqual(await classifyHttpFailure(new Response("rate limited", { status: 429 })), {
+    code: "http_error",
+    retryDisposition: "transient",
+  });
+  assert.deepEqual(await classifyHttpFailure(new Response("insufficient_quota", { status: 429 })), {
+    code: "http_error",
+    retryDisposition: "non_retryable",
+  });
+  assert.deepEqual(await classifyHttpFailure(new Response("unauthorized", { status: 401 })), {
+    code: "http_error",
+    retryDisposition: "non_retryable",
+  });
+  assert.deepEqual(await classifyHttpFailure(new Response("upstream down", { status: 503 })), {
+    code: "http_error",
+    retryDisposition: "transient",
+  });
+  assert.deepEqual(await classifyHttpFailure(new Response("maximum context exceeded", { status: 400 })), {
+    code: "context_limit",
+    retryDisposition: "non_retryable",
+  });
+});
 
 function createDecisionInput(signal = new AbortController().signal) {
   const environment = new GameEnvironment();
@@ -64,6 +90,60 @@ function anthropicResponse(action = { type: "sell", itemId: 0, quantity: 1 }, st
     content: [{ type: "text", text: JSON.stringify(action) }],
   }), { status: 200, headers: { "Content-Type": "application/json" } });
 }
+
+test("Qwen and Anthropic Assisted requests carry dynamic daily-plan JSON schemas", async () => {
+  const decisionContract = {
+    kind: "daily-plan",
+    planIds: ["P001", "P002"],
+    destinationIds: [2, 5, 8],
+  };
+  const input = {
+    ...createDecisionInput(),
+    systemInstruction: "daily plan system",
+    userContext: "{}",
+    decisionContract,
+  };
+  let qwenBody;
+  const qwen = createDirectProviderAdapter(normalizeAgentProviderConfig({
+    provider: "qwen",
+    baseUrl: "https://qwen.invalid/v1",
+    apiKey: TEST_API_KEY,
+    model: "qwen-test",
+    maxOutputTokens: 128,
+    reasoningEffort: "low",
+  }), {
+    completionAssisted: true,
+    fetchImpl: async (_url, init) => {
+      qwenBody = JSON.parse(init.body);
+      return chatResponse({ planId: "P002", destinationId: 5 });
+    },
+  });
+  assert.deepEqual((await qwen.requestDecision(input)).action, { planId: "P002", destinationId: 5 });
+  assert.equal(qwen.samplingAudit.jsonMode, "json-schema");
+  assert.deepEqual(qwenBody.response_format.json_schema.schema.properties.planId.enum, ["P001", "P002"]);
+  assert.deepEqual(qwenBody.response_format.json_schema.schema.properties.destinationId.enum, [2, 5, 8]);
+
+  let anthropicBody;
+  const anthropic = createDirectProviderAdapter(normalizeAgentProviderConfig({
+    provider: "anthropic",
+    baseUrl: "https://anthropic.invalid/v1",
+    apiKey: TEST_API_KEY,
+    model: "claude-test",
+    maxOutputTokens: 128,
+    reasoningEffort: "low",
+  }), {
+    completionAssisted: true,
+    fetchImpl: async (_url, init) => {
+      anthropicBody = JSON.parse(init.body);
+      return anthropicResponse({ planId: "P001", destinationId: 8 });
+    },
+  });
+  assert.deepEqual((await anthropic.requestDecision(input)).action, { planId: "P001", destinationId: 8 });
+  assert.equal(anthropic.samplingAudit.jsonMode, "json-schema");
+  assert.equal(anthropicBody.output_config.effort, "low");
+  assert.deepEqual(anthropicBody.output_config.format.schema.properties.planId.enum, ["P001", "P002"]);
+  assert.deepEqual(anthropicBody.output_config.format.schema.properties.destinationId.enum, [2, 5, 8]);
+});
 
 test("provider aliases map to the intended native protocol", () => {
   assert.equal(normalizeArenaProviderId("gpt"), "openai");

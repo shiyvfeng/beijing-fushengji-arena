@@ -34,6 +34,7 @@ export interface ArenaAgentProviderConfig {
 export interface ProviderFactoryOptions {
   readonly fetchImpl?: typeof globalThis.fetch;
   readonly exchangeRecorder?: RawExchangeRecorder;
+  readonly completionAssisted?: boolean;
 }
 
 export function normalizeArenaProviderId(value: string): ArenaProviderId {
@@ -157,6 +158,7 @@ export function createDirectProviderAdapter(
         model: config.model,
         maxOutputTokens: config.maxOutputTokens,
         reasoningEffort: config.reasoningEffort,
+        completionAssisted: options.completionAssisted,
         ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),
@@ -174,6 +176,7 @@ export function createDirectProviderAdapter(
         maxOutputTokens: config.maxOutputTokens,
         thinkingMode: config.thinkingMode,
         reasoningEffort: config.reasoningEffort,
+        completionAssisted: options.completionAssisted,
         ...(config.modelRevision ? { declaredModelRevision: config.modelRevision } : {}),
         ...(options.fetchImpl ? { fetchImpl: options.fetchImpl } : {}),
         ...(options.exchangeRecorder ? { exchangeRecorder: options.exchangeRecorder } : {}),

@@ -21,7 +21,9 @@ import {
 import type {
   ActionErrorCode,
   ActionResultPayload,
+  AssistanceFact,
   ArenaEvent,
+  DailyPlanExecutionResult,
   EpisodeConfig,
   EpisodeStatus,
   EpisodeTrace,
@@ -40,6 +42,7 @@ import type {
   AgentDescriptor,
 } from "./contracts.js";
 import {
+  ASSISTANCE_POLICY_VERSION,
   ARENA_SCHEMA_VERSION,
   RULESET_VERSION,
   SETTLEMENT_RULE_VERSION,
@@ -310,6 +313,152 @@ export class GameEnvironment implements GameEnvironmentContract {
     return this.makeStepResult(execution, before, after, diff, event);
   }
 
+  previewActions(actions: readonly GameAction[]): DailyPlanExecutionResult {
+    this.validateDailyPlanActions(actions);
+    const preview = this.fork(false);
+    const before = preview.snapshot();
+    const events: ArenaEvent[] = [];
+    for (const action of actions) {
+      const result = preview.step(action);
+      if (result.event) events.push(result.event);
+      if (!result.success) {
+        return immutableClone({
+          success: false,
+          events,
+          observation: preview.observe(),
+          before,
+          after: result.after,
+        }) as DailyPlanExecutionResult;
+      }
+    }
+    return immutableClone({
+      success: true,
+      events,
+      observation: preview.observe(),
+      before,
+      after: preview.snapshot(),
+    }) as DailyPlanExecutionResult;
+  }
+
+  previewDailyPlan(actions: readonly GameAction[], destinationId: number): DailyPlanExecutionResult {
+    this.validateDailyPlanActions(actions);
+    if (!Number.isSafeInteger(destinationId)) {
+      throw new Error("Daily Plan destinationId 必须为安全整数");
+    }
+    const preview = this.fork(true);
+    return preview.executeDailyPlan(actions, destinationId);
+  }
+
+  executeDailyPlan(
+    actions: readonly GameAction[],
+    destinationId: number,
+    evidence?: ModelDecisionEvidence,
+    expectedFinalStateHash?: string,
+  ): DailyPlanExecutionResult {
+    this.validateDailyPlanActions(actions);
+    if (!Number.isSafeInteger(destinationId)) {
+      throw new Error("Daily Plan destinationId 必须为安全整数");
+    }
+    if (expectedFinalStateHash !== undefined
+      && !/^sha256:[0-9a-f]{64}$/u.test(expectedFinalStateHash)) {
+      throw new Error("Daily Plan expectedFinalStateHash 无效");
+    }
+    const before = this.snapshot();
+    if (this.finalResult !== null || before.status !== "running") {
+      return immutableClone({
+        success: false,
+        events: [],
+        observation: this.observe(),
+        before,
+        after: before,
+      }) as DailyPlanExecutionResult;
+    }
+
+    const eventOffset = this.events.length;
+    const transaction = this.fork(true);
+    for (const action of actions) {
+      const result = transaction.step(action, evidence);
+      if (!result.success) {
+        return immutableClone({
+          success: false,
+          events: [],
+          observation: this.observe(),
+          before,
+          after: before,
+        }) as DailyPlanExecutionResult;
+      }
+    }
+    const move = transaction.step({ type: "move", locationId: destinationId }, evidence);
+    if (!move.success) {
+      return immutableClone({
+        success: false,
+        events: [],
+        observation: this.observe(),
+        before,
+        after: before,
+      }) as DailyPlanExecutionResult;
+    }
+
+    if (expectedFinalStateHash !== undefined
+      && integrityHash(transaction.snapshot()) !== expectedFinalStateHash) {
+      return immutableClone({
+        success: false,
+        events: [],
+        observation: this.observe(),
+        before,
+        after: before,
+      }) as DailyPlanExecutionResult;
+    }
+
+    const committedEvents = transaction.events.slice(eventOffset);
+    this.commitFrom(transaction);
+    return immutableClone({
+      success: true,
+      events: committedEvents,
+      observation: this.observe(),
+      before,
+      after: this.snapshot(),
+    }) as DailyPlanExecutionResult;
+  }
+
+  assistPassDay(fact: AssistanceFact): StepResult {
+    this.validateAssistanceFact(fact);
+    const state = this.ensureInitialized();
+    const before = this.snapshot();
+    if (this.finalResult !== null || state.status !== "running") {
+      return this.unloggedRejection(
+        "episode_terminated",
+        "本局已终止，不能继续辅助过日。",
+        before,
+      );
+    }
+    const observationHash = this.buildObservation().observationHash;
+    const execution = this.advanceDay(state.currentLocation, false);
+    state.actionCount++;
+    state.dayActionCount++;
+    const after = this.snapshot();
+    const payload: ActionResultPayload = {
+      success: true,
+      message: state.currentLocation === null
+        ? `Runner 辅助保持无地点状态，进入第 ${state.day} 天。`
+        : `Runner 辅助留在当前地点，进入第 ${state.day} 天。`,
+      effects: execution.effects,
+    };
+    const event = this.appendEvent(
+      "assistance",
+      Object.freeze({ type: "assisted_pass_day" }),
+      before,
+      after,
+      payload,
+      execution.streams,
+      observationHash,
+      undefined,
+      undefined,
+      { assistance: fact },
+    );
+    return this.makeStepResult(payload, before, after, diffState(before, after), event);
+  }
+
   terminateTechnical(
     status: TechnicalDnfStatus,
     message: string,
@@ -501,22 +650,40 @@ export class GameEnvironment implements GameEnvironmentContract {
       return this.error("same_location", "不能移动到当前所在地点。");
     }
 
+    const execution = this.advanceDay(location.id, true);
+    return {
+      ...execution,
+      message: `移动到${location.name}，进入第 ${state.day} 天。`,
+    };
+  }
+
+  private advanceDay(locationId: number | null, updateLocation: boolean): ExecutionResult {
+    const state = this.state!;
     state.day++;
     state.daysLeft = Math.max(0, state.totalDays - state.day);
     state.dayActionCount = 0;
-    state.currentLocation = location.id;
-    state.currentMap = location.map;
+    if (updateLocation) {
+      const location = LOCATIONS.find(item => item.id === locationId);
+      if (!location) throw new Error("advanceDay 收到无效目的地");
+      state.currentLocation = location.id;
+      state.currentMap = location.map;
+    }
     state.debt += Math.floor(state.debt * this.config!.scenario.debtInterestRate);
     state.bank += Math.floor(state.bank * this.config!.scenario.bankInterestRate);
 
     const publicMarket = this.publicMarketForDay(state.day);
     state.publicReferencePrice = [...publicMarket.prices];
-    state.market = this.localMarketForDay(state.day, location.id, publicMarket.prices);
+    const activeLocation = state.currentLocation;
+    state.market = activeLocation === null
+      ? new Array<number>(DRUG_COUNT).fill(0)
+      : this.localMarketForDay(state.day, activeLocation, publicMarket.prices);
 
     const effects: EventEffect[] = [...publicMarket.effects];
     const streams = new Set(publicMarket.streams);
-    streams.add("public.market.location");
-    if (state.day <= state.totalDays - 2) streams.add("public.market.availability");
+    if (activeLocation !== null) {
+      streams.add("public.market.location");
+      if (state.day <= state.totalDays - 2) streams.add("public.market.availability");
+    }
     this.applyPersonalEvents(state.day, effects, streams);
 
     if (state.debt > DEBT_CRISIS_THRESHOLD && state.status === "running") {
@@ -539,7 +706,7 @@ export class GameEnvironment implements GameEnvironmentContract {
 
     return {
       success: true,
-      message: `移动到${location.name}，进入第 ${state.day} 天。`,
+      message: `进入第 ${state.day} 天。`,
       effects,
       streams: [...streams].sort(),
     };
@@ -900,6 +1067,7 @@ export class GameEnvironment implements GameEnvironmentContract {
     observationHash?: string,
     evidence?: ModelDecisionEvidence,
     dayOverride?: number,
+    metadata?: { readonly assistance?: AssistanceFact },
   ): ArenaEvent {
     const config = this.config!;
     const sequence = this.events.length;
@@ -926,6 +1094,7 @@ export class GameEnvironment implements GameEnvironmentContract {
         fullContextHash: evidence.fullContextHash,
       } : {}),
       ...(action ? { action: cloneValue(action) } : {}),
+      ...(metadata?.assistance ? { assistance: cloneValue(metadata.assistance) } : {}),
       stateBefore: before,
       stateAfter: after,
       stateDiff: deepFreeze(diffState(before, after)),
@@ -983,6 +1152,63 @@ export class GameEnvironment implements GameEnvironmentContract {
 
   private error(code: ActionErrorCode, message: string): ExecutionResult {
     return { success: false, code, message, effects: [], streams: [] };
+  }
+
+  private validateDailyPlanActions(actions: readonly GameAction[]): void {
+    if (!Array.isArray(actions) || actions.length > 2) {
+      throw new Error("Daily Plan 最多包含两个日内动作");
+    }
+    if (actions.some(action => action.type === "move")) {
+      throw new Error("Daily Plan 的日内动作不得包含 move");
+    }
+  }
+
+  private validateAssistanceFact(fact: AssistanceFact): void {
+    const reasons = new Set([
+      "transient_retries_exhausted",
+      "repair_retries_exhausted",
+      "non_retryable_failure",
+      "circuit_open",
+      "provider_time_budget_exhausted",
+    ]);
+    if (fact.policyVersion !== ASSISTANCE_POLICY_VERSION
+      || !reasons.has(fact.reason)
+      || !Array.isArray(fact.triggerModelCallIds)
+      || fact.triggerModelCallIds.some(id => typeof id !== "string" || !id.trim())
+      || (fact.circuitSkipDaysRemaining !== undefined
+        && (!Number.isSafeInteger(fact.circuitSkipDaysRemaining)
+          || fact.circuitSkipDaysRemaining < 0))) {
+      throw new Error("AssistanceFact 无效");
+    }
+  }
+
+  private fork(includeEvents: boolean): GameEnvironment {
+    const state = this.ensureInitialized();
+    const config = this.config!;
+    const fork = new GameEnvironment();
+    fork.config = cloneValue(config) as EpisodeConfig;
+    fork.state = cloneValue(state) as MutableState;
+    fork.rng = new SeededRng(config.seed, `${config.scenario.id}:${RULESET_VERSION}`);
+    fork.initialStateHash = this.initialStateHash;
+    fork.finalResult = this.finalResult ? cloneValue(this.finalResult) as FinalResult : null;
+    fork.failureMessage = this.failureMessage;
+    fork.technicalFailure = this.technicalFailure
+      ? cloneValue(this.technicalFailure) as TechnicalFailureDetail
+      : undefined;
+    if (includeEvents) fork.events.push(...cloneValue(this.events));
+    return fork;
+  }
+
+  private commitFrom(transaction: GameEnvironment): void {
+    this.state = cloneValue(transaction.state!) as MutableState;
+    this.finalResult = transaction.finalResult
+      ? cloneValue(transaction.finalResult) as FinalResult
+      : null;
+    this.failureMessage = transaction.failureMessage;
+    this.technicalFailure = transaction.technicalFailure
+      ? cloneValue(transaction.technicalFailure) as TechnicalFailureDetail
+      : undefined;
+    this.events.splice(0, this.events.length, ...cloneValue(transaction.events));
   }
 
   private ensureInitialized(): MutableState {

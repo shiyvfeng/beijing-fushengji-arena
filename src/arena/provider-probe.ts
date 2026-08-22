@@ -13,12 +13,29 @@ import { findPotentialSecrets } from "../core/secret-scan.js";
 import { immutableClone, integrityHash } from "../core/stable-value.js";
 import type {
   AgentDecisionOutput,
+  AgentActionDecisionOutput,
+  AgentDailyPlanDecisionOutput,
   AgentDriver,
   ModelRevisionAudit,
   ProviderTokenUsage,
   SamplingAudit,
 } from "./agent-driver.js";
 import { DirectProviderRequestError } from "./agent-driver.js";
+import {
+  COMPLETION_ASSISTANCE_POLICY_VERSION,
+  COMPLETION_CANDIDATE_POLICY_VERSION,
+  COMPLETION_CONTEXT_POLICY_VERSION,
+  COMPLETION_DAILY_PLAN_POLICY_VERSION,
+  COMPLETION_DECISION_POLICY_HASH,
+  COMPLETION_MAX_ATTEMPTS_PER_DAY,
+  COMPLETION_MAX_PLAN_CANDIDATES,
+  COMPLETION_MAX_PREP_ACTIONS,
+  COMPLETION_PROVIDER_TIME_BUDGET_MS,
+  COMPLETION_RECOVERY_POLICY_VERSION,
+  COMPLETION_RUN_TRACK,
+  generateDailyPlanOptions,
+  type DailyPlanSelection,
+} from "./completion-assisted.js";
 import {
   DIRECT_CONTEXT_POLICY_VERSION,
   DIRECT_DECISION_POLICY_HASH,
@@ -48,6 +65,7 @@ export interface ProviderProbeEntry {
   readonly providerReasoningEffort: ProviderReasoningEffort;
   readonly passed: boolean;
   readonly action: GameAction | null;
+  readonly dailyPlanSelection?: DailyPlanSelection | null;
   readonly usage: ProviderTokenUsage | null;
   readonly usageMissing: boolean;
   readonly latencyMs: number;
@@ -57,7 +75,8 @@ export interface ProviderProbeEntry {
 }
 
 export interface ProviderProbeResult {
-  readonly artifactType: "arena-provider-probe-v3";
+  readonly artifactType: "arena-provider-probe-v3" | "arena-provider-probe-v4";
+  readonly runTrack?: typeof COMPLETION_RUN_TRACK;
   readonly matchId: string;
   readonly createdAt: string;
   readonly passed: boolean;
@@ -66,9 +85,16 @@ export interface ProviderProbeResult {
   readonly decisionPolicyId: typeof DIRECT_DECISION_POLICY_ID;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: typeof DIRECT_MODEL_OBSERVATION_VERSION;
-  readonly contextPolicyVersion: typeof DIRECT_CONTEXT_POLICY_VERSION;
-  readonly recoveryPolicyVersion: typeof DIRECT_RECOVERY_POLICY_VERSION;
+  readonly contextPolicyVersion:
+    | typeof DIRECT_CONTEXT_POLICY_VERSION
+    | typeof COMPLETION_CONTEXT_POLICY_VERSION;
+  readonly recoveryPolicyVersion:
+    | typeof DIRECT_RECOVERY_POLICY_VERSION
+    | typeof COMPLETION_RECOVERY_POLICY_VERSION;
   readonly samplingPolicyVersion: typeof DIRECT_SAMPLING_POLICY_VERSION;
+  readonly dailyPlanPolicyVersion?: typeof COMPLETION_DAILY_PLAN_POLICY_VERSION;
+  readonly candidatePolicyVersion?: typeof COMPLETION_CANDIDATE_POLICY_VERSION;
+  readonly assistancePolicyVersion?: typeof COMPLETION_ASSISTANCE_POLICY_VERSION;
   readonly entries: readonly ProviderProbeEntry[];
   readonly probeSummaryHash: string;
 }
@@ -94,6 +120,9 @@ export interface ProbeFingerprintInput {
   readonly totalWallClockMs: number;
   readonly maxOutputTokens: number;
   readonly slotRotationIndex: number;
+  readonly completionAssisted?: boolean;
+  readonly providerTimeBudgetMs?: number;
+  readonly maxDailyDecisionsPerAgent?: number;
 }
 
 export interface ProviderProbeConfig {
@@ -104,6 +133,7 @@ export interface ProviderProbeConfig {
   readonly decisionTimeoutMs: number;
   readonly slotRotationIndex: number;
   readonly configFingerprint: string;
+  readonly completionAssisted?: boolean;
   readonly createdAt?: string;
 }
 
@@ -129,9 +159,21 @@ function safeLatency(startedAt: number): number {
   return Math.round(Math.max(0, performance.now() - startedAt) * 1_000) / 1_000;
 }
 
-function normalizeDecision(value: GameAction | AgentDecisionOutput): AgentDecisionOutput {
-  if (value && typeof value === "object" && "action" in value) return value as AgentDecisionOutput;
+function normalizeDecision(value: GameAction | AgentDecisionOutput): AgentActionDecisionOutput {
+  if (value && typeof value === "object" && "dailyPlanSelection" in value) {
+    throw new Error("Strict Provider Probe 收到 Daily Plan 决策");
+  }
+  if (value && typeof value === "object" && "action" in value) {
+    return value as AgentActionDecisionOutput;
+  }
   return Object.freeze({ action: value as GameAction });
+}
+
+function normalizeDailyPlanDecision(value: GameAction | AgentDecisionOutput): AgentDailyPlanDecisionOutput {
+  if (value && typeof value === "object" && "dailyPlanSelection" in value) {
+    return value as AgentDailyPlanDecisionOutput;
+  }
+  throw new Error("Completion-Assisted Provider Probe 收到 Strict Action 决策");
 }
 
 function fallbackSampling(driver: AgentDriver): SamplingAudit {
@@ -202,23 +244,56 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
         reject(timeoutError);
       }, config.decisionTimeoutMs);
     });
-    const decision = normalizeDecision(await Promise.race([
+    const dailyPlanOptions = config.completionAssisted
+      ? generateDailyPlanOptions(environment)
+      : undefined;
+    const rawDecision = await Promise.race([
       Promise.resolve(driver.decide({
         matchId: config.matchId,
         observation,
         actionIndex: 0,
         history: [],
+        ...(dailyPlanOptions ? { dailyPlanOptions } : {}),
         signal: controller.signal,
       })),
       timeout,
-    ]));
-    const step = environment.step(decision.action, decision.evidence);
+    ]);
+    const decision = config.completionAssisted
+      ? normalizeDailyPlanDecision(rawDecision)
+      : normalizeDecision(rawDecision);
+    const execution = "dailyPlanSelection" in decision
+      ? (() => {
+        const plan = dailyPlanOptions!.plans.find(item => item.id === decision.dailyPlanSelection.planId);
+        if (!plan) throw new Error("Probe Daily Plan ID 未命中预验证候选");
+        const prepRevalidation = environment.previewActions(plan.actions);
+        if (!prepRevalidation.success
+          || integrityHash(prepRevalidation.after) !== plan.resultingStateHash) {
+          throw new Error("Probe Daily Plan 候选状态重验证失败");
+        }
+        const fullRevalidation = environment.previewDailyPlan(
+          plan.actions,
+          decision.dailyPlanSelection.destinationId,
+        );
+        if (!fullRevalidation.success) {
+          throw new Error("Probe Daily Plan 日内操作与移动无法整体执行");
+        }
+        return environment.executeDailyPlan(
+          plan.actions,
+          decision.dailyPlanSelection.destinationId,
+          decision.evidence,
+          integrityHash(fullRevalidation.after),
+        );
+      })()
+      : environment.step(decision.action, decision.evidence);
     const call = metricsForLastCall(driver);
-    if (!step.success || !call) {
+    if (!execution.success || !call) {
       return Object.freeze({
         ...base,
         passed: false,
-        action: decision.action,
+        action: "action" in decision ? decision.action : null,
+        ...(config.completionAssisted
+          ? { dailyPlanSelection: "dailyPlanSelection" in decision ? decision.dailyPlanSelection : null }
+          : {}),
         usage: call?.tokenUsage ?? null,
         usageMissing: call?.usageMissing ?? true,
         latencyMs: call?.latencyMs ?? safeLatency(startedAt),
@@ -234,7 +309,10 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
     return Object.freeze({
       ...base,
       passed: true,
-      action: decision.action,
+      action: "action" in decision ? decision.action : null,
+      ...(config.completionAssisted
+        ? { dailyPlanSelection: "dailyPlanSelection" in decision ? decision.dailyPlanSelection : null }
+        : {}),
       usage: call.tokenUsage,
       usageMissing: call.usageMissing,
       latencyMs: call.latencyMs,
@@ -272,6 +350,7 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
       ...base,
       passed: false,
       action: null,
+      ...(config.completionAssisted ? { dailyPlanSelection: null } : {}),
       usage: call?.tokenUsage ?? null,
       usageMissing: call?.usageMissing ?? true,
       latencyMs: call?.latencyMs ?? safeLatency(startedAt),
@@ -286,6 +365,43 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
 
 export function computeProbeConfigFingerprint(input: ProbeFingerprintInput): string {
   if (input.agents.length !== 5) throw new Error("Probe 配置指纹必须包含五个 Agent");
+  if (input.completionAssisted) {
+    const providerTimeBudgetMs = input.providerTimeBudgetMs ?? COMPLETION_PROVIDER_TIME_BUDGET_MS;
+    const maxDailyDecisionsPerAgent = input.maxDailyDecisionsPerAgent ?? input.scenario.totalDays;
+    return integrityHash({
+      contract: "arena-provider-probe-config-v5",
+      runTrack: COMPLETION_RUN_TRACK,
+      matchId: input.matchId,
+      seed: input.seed,
+      scenarioId: input.scenario.id,
+      scenarioHash: scenarioIntegrityHash(input.scenario),
+      agents: input.agents,
+      budgets: {
+        maxDailyDecisionsPerAgent,
+        attemptTimeoutMs: input.decisionTimeoutMs,
+        providerTimeBudgetMs,
+        maxOutputTokens: input.maxOutputTokens,
+      },
+      slotRotation: {
+        version: "cyclic-v1",
+        rotationIndex: input.slotRotationIndex,
+      },
+      policies: {
+        decisionPolicyId: DIRECT_DECISION_POLICY_ID,
+        decisionPolicyHash: COMPLETION_DECISION_POLICY_HASH,
+        modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
+        contextPolicyVersion: COMPLETION_CONTEXT_POLICY_VERSION,
+        recoveryPolicyVersion: COMPLETION_RECOVERY_POLICY_VERSION,
+        samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
+        dailyPlanPolicyVersion: COMPLETION_DAILY_PLAN_POLICY_VERSION,
+        candidatePolicyVersion: COMPLETION_CANDIDATE_POLICY_VERSION,
+        assistancePolicyVersion: COMPLETION_ASSISTANCE_POLICY_VERSION,
+        maxAttemptsPerDay: COMPLETION_MAX_ATTEMPTS_PER_DAY,
+        maxPlanCandidates: COMPLETION_MAX_PLAN_CANDIDATES,
+        maxPrepActionsPerDay: COMPLETION_MAX_PREP_ACTIONS,
+      },
+    });
+  }
   return integrityHash({
     contract: "arena-provider-probe-config-v4",
     matchId: input.matchId,
@@ -337,6 +453,12 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
     throw new Error("Provider Probe 的 Agent slot 必须唯一覆盖 0..4");
   }
   const identities = new Set<string>();
+  const expectedContextPolicy = config.completionAssisted
+    ? COMPLETION_CONTEXT_POLICY_VERSION
+    : DIRECT_CONTEXT_POLICY_VERSION;
+  const expectedRecoveryPolicy = config.completionAssisted
+    ? COMPLETION_RECOVERY_POLICY_VERSION
+    : DIRECT_RECOVERY_POLICY_VERSION;
   for (const [entryIndex, driver] of config.drivers.entries()) {
     const descriptor = driver.descriptor;
     if (descriptor.driver !== "direct"
@@ -349,8 +471,8 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
       || !descriptor.providerAdapterVersion?.trim()
       || !descriptor.providerReasoningEffort
       || descriptor.providerReasoningEffort === "default"
-      || driver.competitionProfile?.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
-      || driver.competitionProfile?.recoveryPolicyVersion !== DIRECT_RECOVERY_POLICY_VERSION
+      || driver.competitionProfile?.contextPolicyVersion !== expectedContextPolicy
+      || driver.competitionProfile?.recoveryPolicyVersion !== expectedRecoveryPolicy
       || driver.competitionProfile?.samplingPolicyVersion !== DIRECT_SAMPLING_POLICY_VERSION) {
       throw new Error("Provider Probe 的五个 Direct Agent 配置或 cyclic-v1 映射无效");
     }
@@ -367,18 +489,28 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
     throw new Error(`Provider Probe 请求计数守卫失败：预期 5，实际 ${requestCount}`);
   }
   const body = {
-    artifactType: "arena-provider-probe-v3" as const,
+    artifactType: config.completionAssisted
+      ? "arena-provider-probe-v4" as const
+      : "arena-provider-probe-v3" as const,
+    ...(config.completionAssisted ? { runTrack: COMPLETION_RUN_TRACK } : {}),
     matchId: config.matchId,
     createdAt: config.createdAt ?? new Date().toISOString(),
     passed: entries.every(entry => entry.passed),
     requestCount: 5 as const,
     configFingerprint: config.configFingerprint,
     decisionPolicyId: DIRECT_DECISION_POLICY_ID,
-    decisionPolicyHash: DIRECT_DECISION_POLICY_HASH,
+    decisionPolicyHash: config.completionAssisted
+      ? COMPLETION_DECISION_POLICY_HASH
+      : DIRECT_DECISION_POLICY_HASH,
     modelObservationVersion: DIRECT_MODEL_OBSERVATION_VERSION,
-    contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
-    recoveryPolicyVersion: DIRECT_RECOVERY_POLICY_VERSION,
+    contextPolicyVersion: expectedContextPolicy,
+    recoveryPolicyVersion: expectedRecoveryPolicy,
     samplingPolicyVersion: DIRECT_SAMPLING_POLICY_VERSION,
+    ...(config.completionAssisted ? {
+      dailyPlanPolicyVersion: COMPLETION_DAILY_PLAN_POLICY_VERSION,
+      candidatePolicyVersion: COMPLETION_CANDIDATE_POLICY_VERSION,
+      assistancePolicyVersion: COMPLETION_ASSISTANCE_POLICY_VERSION,
+    } : {}),
     entries: Object.freeze(entries),
   };
   return immutableClone({
@@ -390,6 +522,7 @@ export async function probeProviders(config: ProviderProbeConfig): Promise<Provi
 export function assertMatchingProviderProbe(
   value: unknown,
   configFingerprint: string,
+  expectedCompletionAssisted = false,
 ): asserts value is ProviderProbeResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("probe-summary.json 结构无效");
@@ -399,13 +532,28 @@ export function assertMatchingProviderProbe(
   const entries = Array.isArray(summary.entries) ? summary.entries : [];
   const entryIds = new Set(entries.map(entry => entry?.agentId));
   const entrySlots = new Set(entries.map(entry => entry?.agentSlot));
-  if (summary.artifactType !== "arena-provider-probe-v3"
+  const completionAssisted = summary.runTrack === COMPLETION_RUN_TRACK;
+  const expectedArtifactType = completionAssisted
+    ? "arena-provider-probe-v4"
+    : "arena-provider-probe-v3";
+  const expectedDecisionHash = completionAssisted
+    ? COMPLETION_DECISION_POLICY_HASH
+    : DIRECT_DECISION_POLICY_HASH;
+  const expectedContextPolicy = completionAssisted
+    ? COMPLETION_CONTEXT_POLICY_VERSION
+    : DIRECT_CONTEXT_POLICY_VERSION;
+  const expectedRecoveryPolicy = completionAssisted
+    ? COMPLETION_RECOVERY_POLICY_VERSION
+    : DIRECT_RECOVERY_POLICY_VERSION;
+  if (completionAssisted !== expectedCompletionAssisted
+    || (!completionAssisted && summary.runTrack !== undefined)
+    || summary.artifactType !== expectedArtifactType
     || summary.requestCount !== 5
     || summary.passed !== true
     || entries.length !== 5
     || entries.some(entry => !entry || typeof entry !== "object"
       || entry.passed !== true
-      || entry.action === null
+      || (completionAssisted ? !entry.dailyPlanSelection : entry.action === null)
       || entry.fault !== null
       || typeof entry.provider !== "string"
       || typeof entry.model !== "string"
@@ -425,10 +573,13 @@ export function assertMatchingProviderProbe(
     || [...entrySlots].sort((a, b) => Number(a) - Number(b)).some((slot, index) => slot !== index)
     || summary.configFingerprint !== configFingerprint
     || summary.decisionPolicyId !== DIRECT_DECISION_POLICY_ID
-    || summary.decisionPolicyHash !== DIRECT_DECISION_POLICY_HASH
+    || summary.decisionPolicyHash !== expectedDecisionHash
     || summary.modelObservationVersion !== DIRECT_MODEL_OBSERVATION_VERSION
-    || summary.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
-    || summary.recoveryPolicyVersion !== DIRECT_RECOVERY_POLICY_VERSION
+    || summary.contextPolicyVersion !== expectedContextPolicy
+    || summary.recoveryPolicyVersion !== expectedRecoveryPolicy
+    || (completionAssisted && (summary.dailyPlanPolicyVersion !== COMPLETION_DAILY_PLAN_POLICY_VERSION
+      || summary.candidatePolicyVersion !== COMPLETION_CANDIDATE_POLICY_VERSION
+      || summary.assistancePolicyVersion !== COMPLETION_ASSISTANCE_POLICY_VERSION))
     || summary.samplingPolicyVersion !== DIRECT_SAMPLING_POLICY_VERSION
     || typeof summary.createdAt !== "string"
     || Number.isNaN(Date.parse(summary.createdAt))

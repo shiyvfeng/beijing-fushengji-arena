@@ -14,6 +14,7 @@ import type {
   TechnicalFailureCategory,
 } from "../core/contracts.js";
 import type { StateDiff } from "../core/state-diff.js";
+import type { DailyPlanOptions, DailyPlanSelection } from "./completion-assisted.js";
 
 export interface AgentDecisionHistoryEntry {
   readonly actionIndex: number;
@@ -43,20 +44,29 @@ export interface AgentDecisionInput {
   readonly attemptIndex?: number;
   readonly retryFeedback?: DecisionRetryFeedback;
   readonly history: readonly AgentDecisionHistoryEntry[];
+  readonly dailyPlanOptions?: DailyPlanOptions;
   readonly signal: AbortSignal;
 }
 
-export interface AgentDecisionOutput {
+export interface AgentActionDecisionOutput {
   readonly action: GameAction;
   readonly evidence?: ModelDecisionEvidence;
 }
+
+export interface AgentDailyPlanDecisionOutput {
+  readonly dailyPlanSelection: DailyPlanSelection;
+  readonly evidence?: ModelDecisionEvidence;
+}
+
+export type AgentDecisionOutput = AgentActionDecisionOutput | AgentDailyPlanDecisionOutput;
 
 export interface AgentResetInput {
   readonly signal: AbortSignal;
 }
 
 export interface ModelCallEvidenceLink {
-  readonly actionEventId?: string;
+  readonly actionEventIds?: readonly string[];
+  readonly assistanceEventId?: string;
   readonly terminationEventId?: string;
   readonly retryReason?: TechnicalFailureCategory;
 }
@@ -83,6 +93,13 @@ export interface DirectModelDecisionInput extends Omit<AgentDecisionInput, "obse
   readonly fullContextHash: string;
   readonly systemInstruction: string;
   readonly userContext: string;
+  readonly decisionContract?:
+    | { readonly kind: "game-action" }
+    | {
+      readonly kind: "daily-plan";
+      readonly planIds: readonly string[];
+      readonly destinationIds: readonly number[];
+    };
 }
 
 export type DirectProviderErrorCode =
@@ -93,6 +110,8 @@ export type DirectProviderErrorCode =
   | "refusal"
   | "incomplete"
   | "context_limit";
+
+export type ProviderRetryDisposition = "transient" | "non_retryable";
 
 export interface ProviderTokenUsage {
   readonly inputTokens: number;
@@ -111,17 +130,23 @@ export const DIRECT_ACTION_REPAIR_CODES = Object.freeze([
   "amount_must_be_positive_integer",
   "points_must_be_positive_integer",
   "action_not_allowed",
+  "plan_must_be_object",
+  "plan_fields_invalid",
+  "plan_id_unknown",
+  "destination_id_unknown",
 ] as const);
 
 export type DirectActionRepairCode = (typeof DIRECT_ACTION_REPAIR_CODES)[number];
 
 export interface SafeRejectedAction {
-  readonly type: GameAction["type"] | "unknown";
+  readonly type: GameAction["type"] | "daily_plan" | "unknown";
   readonly locationId?: number;
   readonly itemId?: number;
   readonly quantity?: number;
   readonly amount?: number;
   readonly points?: number;
+  readonly planId?: string;
+  readonly destinationId?: number;
 }
 
 const DIRECT_ACTION_TYPES = new Set<GameAction["type"]>([
@@ -141,7 +166,9 @@ export function sanitizeRejectedAction(value: unknown): SafeRejectedAction | und
   const record = value as Record<string, unknown>;
   const type = typeof record.type === "string" && DIRECT_ACTION_TYPES.has(record.type as GameAction["type"])
     ? record.type as GameAction["type"]
-    : "unknown";
+    : typeof record.planId === "string" || record.type === "daily_plan"
+      ? "daily_plan"
+      : "unknown";
   const summary: {
     type: SafeRejectedAction["type"];
     locationId?: number;
@@ -149,9 +176,15 @@ export function sanitizeRejectedAction(value: unknown): SafeRejectedAction | und
     quantity?: number;
     amount?: number;
     points?: number;
+    planId?: string;
+    destinationId?: number;
   } = { type };
   for (const field of ["locationId", "itemId", "quantity", "amount", "points"] as const) {
     if (Number.isSafeInteger(record[field])) summary[field] = Number(record[field]);
+  }
+  if (typeof record.planId === "string") summary.planId = record.planId.slice(0, 32);
+  if (Number.isSafeInteger(record.destinationId)) {
+    summary.destinationId = Number(record.destinationId);
   }
   return Object.freeze(summary);
 }
@@ -180,6 +213,7 @@ export class DirectProviderRequestError extends Error {
   readonly tokenUsage?: ProviderTokenUsage;
   readonly actionRepairCode?: DirectActionRepairCode;
   readonly rejectedAction?: SafeRejectedAction;
+  readonly retryDisposition?: ProviderRetryDisposition;
 
   constructor(
     providerId: string,
@@ -193,6 +227,7 @@ export class DirectProviderRequestError extends Error {
       readonly tokenUsage?: ProviderTokenUsage;
       readonly actionRepairCode?: DirectActionRepairCode;
       readonly rejectedAction?: unknown;
+      readonly retryDisposition?: ProviderRetryDisposition;
     } = {},
   ) {
     super(message);
@@ -223,6 +258,7 @@ export class DirectProviderRequestError extends Error {
     }
     const rejectedAction = sanitizeRejectedAction(observation.rejectedAction);
     if (rejectedAction) this.rejectedAction = rejectedAction;
+    if (observation.retryDisposition) this.retryDisposition = observation.retryDisposition;
   }
 }
 
@@ -252,10 +288,14 @@ export interface DirectCompetitionProfile {
   readonly decisionPolicyId: string;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
-  readonly contextPolicyVersion: "bounded-history-v1";
-  readonly recoveryPolicyVersion: "bounded-retry-v2";
+  readonly runTrack?: "completion-assisted-v1";
+  readonly contextPolicyVersion: "bounded-history-v1" | "bounded-daily-history-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v2" | "completion-assisted-v1";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly maxOutputTokensPerRequest: number;
+  readonly dailyPlanPolicyVersion?: "daily-plan-v1";
+  readonly candidatePolicyVersion?: "feasible-daily-plan-128-v1";
+  readonly assistancePolicyVersion?: "assisted-pass-day-v1";
 }
 
 export interface ModelRevisionAudit {
@@ -270,10 +310,11 @@ export interface ModelCallFailureAudit {
   readonly domain: FaultDomain;
   readonly countsTowardModelFailure: boolean;
   readonly httpStatus?: number;
+  readonly retryDisposition?: ProviderRetryDisposition;
 }
 
 export interface ArenaModelCallAudit {
-  readonly artifactType: "arena-model-call-v2";
+  readonly artifactType: "arena-model-call-v3";
   readonly modelCallId: string;
   readonly agentId: string;
   readonly agentSlot: number;
@@ -287,7 +328,8 @@ export interface ArenaModelCallAudit {
   readonly usageMissing: boolean;
   readonly sampling: SamplingAudit;
   readonly modelRevision: ModelRevisionAudit;
-  readonly actionEventId: string | null;
+  readonly actionEventIds: readonly string[];
+  readonly assistanceEventId: string | null;
   readonly terminationEventId: string | null;
   readonly retryReason: TechnicalFailureCategory | null;
   readonly failure: ModelCallFailureAudit | null;

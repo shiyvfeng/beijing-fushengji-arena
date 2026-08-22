@@ -38,6 +38,23 @@ export type TechnicalFailureCategory =
   | "incomplete"
   | "driver_error";
 
+export const ASSISTANCE_POLICY_VERSION = "assisted-pass-day-v1" as const;
+
+export type AssistanceReason =
+  | "transient_retries_exhausted"
+  | "repair_retries_exhausted"
+  | "non_retryable_failure"
+  | "circuit_open"
+  | "provider_time_budget_exhausted";
+
+export interface AssistanceFact {
+  readonly policyVersion: typeof ASSISTANCE_POLICY_VERSION;
+  readonly reason: AssistanceReason;
+  readonly failureCategory?: TechnicalFailureCategory;
+  readonly triggerModelCallIds: readonly string[];
+  readonly circuitSkipDaysRemaining?: number;
+}
+
 export type FaultDomain =
   | "platform"
   | "provider"
@@ -208,16 +225,25 @@ export interface ArenaEvent {
   readonly agentId: string;
   readonly day: number;
   readonly sequence: number;
-  readonly type: "episode_reset" | "action" | "technical_termination" | "finalize";
+  readonly type: "episode_reset" | "action" | "assistance" | "technical_termination" | "finalize";
   readonly observationHash?: string;
   readonly fullContextHash?: string;
   readonly modelCallId?: string;
   readonly action?: GameAction | Readonly<Record<string, unknown>>;
+  readonly assistance?: AssistanceFact;
   readonly stateBefore: GameStateSnapshot;
   readonly stateAfter: GameStateSnapshot;
   readonly stateDiff: StateDiff;
   readonly result: ActionResultPayload;
   readonly sourceRandomStreams: readonly string[];
+}
+
+export interface DailyPlanExecutionResult {
+  readonly success: boolean;
+  readonly events: readonly ArenaEvent[];
+  readonly observation: Observation;
+  readonly before: GameStateSnapshot;
+  readonly after: GameStateSnapshot;
 }
 
 export interface ModelDecisionEvidence {
@@ -346,13 +372,11 @@ export interface FinalRankingEntry {
   readonly tier: "completed" | "game_failure";
 }
 
-export interface CompetitionAudit {
+interface CompetitionAuditBase {
   readonly fairnessClass: "controlled-exhibition";
   readonly decisionPolicyId: string;
   readonly decisionPolicyHash: string;
   readonly modelObservationVersion: string;
-  readonly contextPolicyVersion: "bounded-history-v1";
-  readonly recoveryPolicyVersion: "bounded-retry-v2";
   readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
   readonly publicRandomization: "shared-seed";
   readonly personalRandomization: "slot-isolated";
@@ -372,9 +396,36 @@ export interface CompetitionAudit {
   readonly maxOutputTokensPerRequest: number;
   readonly maxAttemptsPerDecision: 3;
   readonly maxRepairRetriesPerDecision: 2;
-  readonly maxTransientRetriesPerDecision: 1;
   readonly automaticRetries: 2;
 }
+
+export interface StrictDirectCompetitionAudit extends CompetitionAuditBase {
+  readonly runTrack?: "strict-direct-v1";
+  readonly contextPolicyVersion: "bounded-history-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v2";
+  readonly maxTransientRetriesPerDecision: 1;
+}
+
+export interface CompletionAssistedCompetitionAudit extends CompetitionAuditBase {
+  readonly runTrack: "completion-assisted-v1";
+  readonly contextPolicyVersion: "bounded-daily-history-v1";
+  readonly recoveryPolicyVersion: "completion-assisted-v1";
+  readonly dailyPlanPolicyVersion: "daily-plan-v1";
+  readonly candidatePolicyVersion: "feasible-daily-plan-128-v1";
+  readonly assistancePolicyVersion: typeof ASSISTANCE_POLICY_VERSION;
+  readonly maxTransientRetriesPerDecision: 2;
+  readonly maxDailyPlanCandidates: 128;
+  readonly maxDailyDecisionsPerAgent: number;
+  readonly maxPrepActionsPerDay: 2;
+  readonly providerTimeBudgetMsPerAgent: number;
+  readonly backoffScheduleMs: readonly [15000, 45000];
+  readonly circuitBreaker: {
+    readonly failureThresholdDays: 3;
+    readonly skipScheduleDays: readonly [2, 4, 8];
+  };
+}
+
+export type CompetitionAudit = StrictDirectCompetitionAudit | CompletionAssistedCompetitionAudit;
 
 export interface AgentPersonalRandomEventSummary {
   readonly agentId: string;
@@ -390,6 +441,31 @@ export interface PersonalRandomEventAudit {
   readonly basis: "personal-event-count-v1";
   readonly revealDay: number;
   readonly agents: readonly AgentPersonalRandomEventSummary[];
+}
+
+export interface AgentReliabilityAudit {
+  readonly agentId: string;
+  readonly advancedDays: number;
+  readonly autonomousDays: number;
+  readonly assistedDays: number;
+  readonly autonomousDayRate: number;
+  readonly providerAttemptedDays: number;
+  readonly firstAttemptSuccessDays: number;
+  readonly firstAttemptSuccessRate: number;
+  readonly validPlanSelections: number;
+  readonly selectionResponseCount: number;
+  readonly validSelectionRate: number;
+  readonly providerRequestSuccessRate: number;
+  readonly providerWaitMs: number;
+  readonly retryCount: number;
+  readonly circuitSkippedDays: number;
+  readonly providerBudgetExhaustedDays: number;
+  readonly assistanceReasons: Readonly<Partial<Record<AssistanceReason, number>>>;
+}
+
+export interface MatchReliabilityAudit {
+  readonly policyVersion: "completion-reliability-v1";
+  readonly agents: readonly AgentReliabilityAudit[];
 }
 
 export interface MatchMetadata {
@@ -415,6 +491,7 @@ export interface MatchReplay {
   readonly finalRanking: readonly FinalRankingEntry[];
   readonly setupEvents: readonly ArenaEvent[];
   readonly competitionAudit?: CompetitionAudit;
+  readonly reliabilityAudit?: MatchReliabilityAudit;
   readonly personalRandomEventAudit: PersonalRandomEventAudit;
   readonly configHash: string;
   readonly eventHash: string;
@@ -426,5 +503,14 @@ export interface GameEnvironmentContract {
   reset(config: EpisodeConfig): Observation;
   observe(): Observation;
   step(action: GameAction | unknown, evidence?: ModelDecisionEvidence): StepResult;
+  previewActions(actions: readonly GameAction[]): DailyPlanExecutionResult;
+  previewDailyPlan(actions: readonly GameAction[], destinationId: number): DailyPlanExecutionResult;
+  executeDailyPlan(
+    actions: readonly GameAction[],
+    destinationId: number,
+    evidence?: ModelDecisionEvidence,
+    expectedFinalStateHash?: string,
+  ): DailyPlanExecutionResult;
+  assistPassDay(fact: AssistanceFact): StepResult;
   finalize(): FinalResult;
 }

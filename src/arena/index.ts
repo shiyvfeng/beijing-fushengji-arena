@@ -1,6 +1,7 @@
 export * from "./agent-driver.js";
 export * from "./direct-driver.js";
 export * from "./direct-context.js";
+export * from "./completion-assisted.js";
 export * from "./diagnostics.js";
 export * from "./episode-runner.js";
 export * from "./match-runner.js";
@@ -9,3 +10,4 @@ export * from "./providers/index.js";
 export * from "./replay.js";
 export * from "./run-report.js";
 export * from "./scripted-driver.js";
+export * from "./stability-probe.js";

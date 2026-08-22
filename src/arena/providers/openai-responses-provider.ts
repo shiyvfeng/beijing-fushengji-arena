@@ -7,6 +7,10 @@ import type {
 } from "../agent-driver.js";
 import { sanitizeRejectedAction } from "../agent-driver.js";
 import { DirectGameActionContractError } from "../direct-driver.js";
+import {
+  DailyPlanSelectionContractError,
+  parseDailyPlanSelectionAgainstIds,
+} from "../completion-assisted.js";
 import type { RawExchangeRecorder } from "../diagnostics.js";
 import {
   buildArenaSystemInstruction,
@@ -242,6 +246,20 @@ function buildRequestBody(
   maxOutputTokens: number,
   reasoningEffort: ProviderReasoningEffort,
 ): Readonly<Record<string, unknown>> {
+  const dailyPlanContract = input.decisionContract?.kind === "daily-plan"
+    ? input.decisionContract
+    : undefined;
+  const responseSchema = dailyPlanContract
+    ? {
+      type: "object",
+      additionalProperties: false,
+      required: ["planId", "destinationId"],
+      properties: {
+        planId: { type: "string", enum: dailyPlanContract.planIds },
+        destinationId: { type: "integer", enum: dailyPlanContract.destinationIds },
+      },
+    }
+    : OPENAI_GAME_ACTION_JSON_SCHEMA;
   return {
     model,
     store: false,
@@ -262,9 +280,9 @@ function buildRequestBody(
     text: {
       format: {
         type: "json_schema",
-        name: "arena_game_action",
+        name: dailyPlanContract ? "arena_daily_plan" : "arena_game_action",
         strict: true,
-        schema: OPENAI_GAME_ACTION_JSON_SCHEMA,
+        schema: responseSchema,
       },
     },
     ...(reasoningEffort === "default"
@@ -373,12 +391,13 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
     });
 
     if (!response.ok) {
-      const code = await classifyHttpFailure(response);
+      const classification = await classifyHttpFailure(response);
       throw new DirectProviderRequestError(
         this.providerId,
-        code,
+        classification.code,
         `OpenAI Responses API 返回 HTTP ${response.status}`,
         response.status,
+        { retryDisposition: classification.retryDisposition },
       );
     }
 
@@ -471,7 +490,34 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         { ...responseFacts, actionRepairCode: "invalid_json" },
       );
     }
-    let action: GameAction;
+    let action: unknown;
+    if (input.decisionContract?.kind === "daily-plan") {
+      try {
+        action = parseDailyPlanSelectionAgainstIds(
+          envelope,
+          input.decisionContract.planIds,
+          input.decisionContract.destinationIds,
+        );
+      } catch (error: unknown) {
+        const contractError = error instanceof DailyPlanSelectionContractError ? error : undefined;
+        throw new DirectProviderRequestError(
+          this.providerId,
+          "invalid_action",
+          "OpenAI Responses API 返回的 Daily Plan 选择不符合 Arena 契约",
+          undefined,
+          {
+            ...responseFacts,
+            actionRepairCode: contractError?.repairCode ?? "plan_fields_invalid",
+            rejectedAction: contractError?.rejectedSelection ?? envelope,
+          },
+        );
+      }
+      return Object.freeze({
+        action,
+        ...(usage ? { usage } : {}),
+        ...(responseModelRevision ? { responseModelRevision } : {}),
+      });
+    }
     try {
       action = parseActionEnvelope(envelope);
     } catch (error: unknown) {
@@ -488,7 +534,7 @@ export class OpenAIResponsesProvider implements DirectModelProviderAdapter {
         },
       );
     }
-    if (!input.observation.allowedActions.includes(action.type)) {
+    if (!input.observation.allowedActions.includes((action as GameAction).type)) {
       throw new DirectProviderRequestError(
         this.providerId,
         "invalid_action",

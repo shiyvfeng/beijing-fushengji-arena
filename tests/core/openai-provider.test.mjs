@@ -129,6 +129,34 @@ test("OpenAI provider sends a strict Responses request and returns a minimal Gam
   assert.equal(JSON.stringify(body).includes(TEST_API_KEY), false);
 });
 
+test("OpenAI daily-plan request uses dynamic plan and destination enums", async () => {
+  let capturedBody;
+  const provider = new OpenAIResponsesProvider({
+    apiKey: TEST_API_KEY,
+    model: "test-model",
+    fetchImpl: async (_url, init) => {
+      capturedBody = JSON.parse(init.body);
+      return completedResponse({ planId: "P002", destinationId: 7 });
+    },
+  });
+  const result = await provider.requestDecision({
+    ...createDecisionInput(),
+    systemInstruction: "daily plan system",
+    userContext: "{}",
+    decisionContract: {
+      kind: "daily-plan",
+      planIds: ["P001", "P002"],
+      destinationIds: [3, 7, 11],
+    },
+  });
+  assert.deepEqual(result.action, { planId: "P002", destinationId: 7 });
+  assert.equal(capturedBody.text.format.name, "arena_daily_plan");
+  assert.deepEqual(capturedBody.text.format.schema.properties.planId.enum, ["P001", "P002"]);
+  assert.deepEqual(capturedBody.text.format.schema.properties.destinationId.enum, [3, 7, 11]);
+  assert.deepEqual(capturedBody.text.format.schema.required, ["planId", "destinationId"]);
+  assert.equal(capturedBody.text.format.schema.additionalProperties, false);
+});
+
 test("OpenAI provider propagates AbortSignal and forbids credential-following redirects", async () => {
   const controller = new AbortController();
   let sawSignal = false;

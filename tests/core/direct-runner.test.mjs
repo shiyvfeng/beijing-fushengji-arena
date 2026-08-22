@@ -221,7 +221,7 @@ test("five Direct models use bounded-history-v1 and produce one-to-one request e
   );
   assert.ok(missingUsageAgent.modelCalls.every(call => call.usageMissing && call.tokenUsage === null));
   assert.ok(report.agents.every(agent => agent.modelCalls.every(call => (
-    call.actionEventId && !call.terminationEventId && call.failure === null
+    call.actionEventIds.length === 1 && !call.terminationEventId && call.failure === null
   ))));
   assert.ok(report.agents.every(agent => agent.modelCalls[0].modelRevision.mismatch));
   assert.equal(findPotentialSecrets(report).length, 0);
@@ -296,8 +296,8 @@ test("bounded-retry-v2 repairs an invalid action and records the recovered decis
   assert.equal(output.report.retryAttemptCount, 1);
   assert.equal(output.report.recoveredDecisionCount, 1);
   assert.equal(output.report.requestMetrics.requestCount, 2);
-  assert.equal(output.report.requestMetrics.calls[0].actionEventId !== null, true);
-  assert.equal(output.report.requestMetrics.calls[1].actionEventId !== null, true);
+  assert.equal(output.report.requestMetrics.calls[0].actionEventIds.length, 1);
+  assert.equal(output.report.requestMetrics.calls[1].actionEventIds.length, 1);
   assert.equal(capturedContexts[1].retryFeedback.category, "invalid_action");
   assert.equal(capturedContexts[1].retryFeedback.actionErrorCode, "invalid_location");
   assert.deepEqual(capturedContexts[1].retryFeedback.rejectedAction, { type: "move", locationId: 999 });

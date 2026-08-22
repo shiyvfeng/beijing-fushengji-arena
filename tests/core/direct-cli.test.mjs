@@ -31,7 +31,7 @@ const CONFIG_ENV_NAMES = [
     `ARENA_AGENT_${letter}_REASONING_EFFORT`,
   ]),
   "ARENA_OUTPUT_DIR", "ARENA_MATCH_ID", "ARENA_SEED", "ARENA_MAX_ACTIONS_PER_AGENT",
-  "ARENA_DECISION_TIMEOUT_MS", "ARENA_TOTAL_WALL_CLOCK_MS", "ARENA_MAX_OUTPUT_TOKENS",
+  "ARENA_DECISION_TIMEOUT_MS", "ARENA_TOTAL_WALL_CLOCK_MS", "ARENA_PROVIDER_TIME_BUDGET_MS", "ARENA_MAX_OUTPUT_TOKENS",
   "ARENA_SLOT_ROTATION_INDEX", "ARENA_SAVE_RAW_EXCHANGES", "ARENA_CONFIRM_LIVE_RUN",
 ];
 
@@ -120,9 +120,26 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /REASONING_EFFORT/);
   assert.match(result.stdout, /--total-wall-clock-ms/);
   assert.match(result.stdout, /--slot-rotation-index/);
+  assert.match(result.stdout, /--completion-assisted/);
+  assert.match(result.stdout, /--provider-time-budget-ms/);
   assert.match(result.stdout, /5 × 160 × 3 = 2400/);
   assert.match(result.stdout, /probe-summary\.json/);
   assert.match(result.stdout, /stability-summary\.json/);
+});
+
+test("completion-assisted config is explicit and reports its isolated budget and recovery track", t => {
+  const { path } = createEnvFixture(t, providerLines(""));
+  const result = runCli([
+    "--env-file", path,
+    "--completion-assisted",
+    "--provider-time-budget-ms", "123456",
+    "--check-config",
+  ]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /运行轨: completion-assisted-v1/);
+  assert.match(result.stdout, /Provider 请求与退避预算: 123456 ms/);
+  assert.match(result.stdout, /2\/4\/8 日熔断/);
+  assert.doesNotMatch(result.stdout, /每 Agent 总墙钟:/);
 });
 
 test("config check validates five normalized identities without requiring output", t => {
@@ -330,7 +347,7 @@ test("five Fake Providers complete Probe + Stability + Match and create the form
   assert.equal(report.stability.summaryHash, stability.stabilitySummaryHash);
   assert.equal(report.agents.length, 5);
   assert.ok(report.agents.every(agent => agent.requestCount > 0 && agent.requestCount <= 40));
-  assert.ok(report.agents.every(agent => agent.modelCalls.every(call => call.actionEventId)));
+  assert.ok(report.agents.every(agent => agent.modelCalls.every(call => call.actionEventIds.length === 1)));
   assert.ok(html.includes(replay.replayHash));
   assert.ok(html.includes("受控五模型展示赛"));
   assert.ok(replay.agents.every(agent => agent.displayName === undefined && agent.personaId === undefined));

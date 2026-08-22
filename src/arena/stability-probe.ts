@@ -17,6 +17,13 @@ import {
   DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
   DIRECT_RECOVERY_POLICY_VERSION,
 } from "./direct-context.js";
+import {
+  COMPLETION_ATTEMPT_TIMEOUT_MS,
+  COMPLETION_CONTEXT_POLICY_VERSION,
+  COMPLETION_MAX_ATTEMPTS_PER_DAY,
+  COMPLETION_RECOVERY_POLICY_VERSION,
+  COMPLETION_RUN_TRACK,
+} from "./completion-assisted.js";
 
 export const STABILITY_ACTION_TARGET = 10 as const;
 
@@ -30,6 +37,8 @@ export interface ProviderStabilityEntry {
   readonly providerReasoningEffort: ProviderReasoningEffort;
   readonly passed: boolean;
   readonly validActions: number;
+  readonly autonomousDays?: number;
+  readonly assistedDays?: number;
   readonly invalidActions: number;
   readonly recoveredDecisions: number;
   readonly requestCount: number;
@@ -55,17 +64,25 @@ export interface ProviderStabilityEntry {
 }
 
 export interface ProviderStabilityResult {
-  readonly artifactType: "arena-provider-stability-v1";
+  readonly artifactType: "arena-provider-stability-v1" | "arena-provider-stability-v2";
+  readonly runTrack?: typeof COMPLETION_RUN_TRACK;
   readonly matchId: string;
   readonly createdAt: string;
   readonly passed: boolean;
   readonly configFingerprint: string;
   readonly actionTargetPerAgent: typeof STABILITY_ACTION_TARGET;
-  readonly contextPolicyVersion: typeof DIRECT_CONTEXT_POLICY_VERSION;
-  readonly recoveryPolicyVersion: typeof DIRECT_RECOVERY_POLICY_VERSION;
-  readonly maxAttemptsPerDecision: typeof DIRECT_MAX_ATTEMPTS_PER_DECISION;
+  readonly autonomousDayTargetPerAgent?: typeof STABILITY_ACTION_TARGET;
+  readonly contextPolicyVersion:
+    | typeof DIRECT_CONTEXT_POLICY_VERSION
+    | typeof COMPLETION_CONTEXT_POLICY_VERSION;
+  readonly recoveryPolicyVersion:
+    | typeof DIRECT_RECOVERY_POLICY_VERSION
+    | typeof COMPLETION_RECOVERY_POLICY_VERSION;
+  readonly maxAttemptsPerDecision:
+    | typeof DIRECT_MAX_ATTEMPTS_PER_DECISION
+    | typeof COMPLETION_MAX_ATTEMPTS_PER_DAY;
   readonly maxRepairRetriesPerDecision: typeof DIRECT_MAX_REPAIR_RETRIES_PER_DECISION;
-  readonly maxTransientRetriesPerDecision: typeof DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION;
+  readonly maxTransientRetriesPerDecision: 1 | 2;
   readonly decisionTimeoutMs: number;
   readonly attemptTimeoutMs: number;
   readonly totalWallClockMsPerAgent: number;
@@ -98,11 +115,15 @@ export function buildProviderStabilityResult(
   probe: ProviderProbeResult,
   createdAt = new Date().toISOString(),
 ): ProviderStabilityResult {
+  const assisted = output.replay.competitionAudit?.runTrack === COMPLETION_RUN_TRACK;
   if (output.report.executionMode !== "direct"
     || output.replay.matchId !== probe.matchId
     || output.replay.agents.length !== 5
     || output.report.episodeReports.length !== 5
-    || output.replay.competitionAudit?.maxActionsPerAgent !== STABILITY_ACTION_TARGET
+    || (assisted
+      ? output.replay.competitionAudit?.maxDailyDecisionsPerAgent !== STABILITY_ACTION_TARGET
+      : output.replay.competitionAudit?.maxActionsPerAgent !== STABILITY_ACTION_TARGET)
+    || (probe.runTrack === COMPLETION_RUN_TRACK) !== assisted
     || probe.configFingerprint !== configFingerprint
     || !probe.passed) {
     throw new Error("Stability Probe 输入与已通过的 Provider Probe 或十步配置不匹配");
@@ -122,7 +143,10 @@ export function buildProviderStabilityResult(
       .filter((value): value is string => Boolean(value)))]
       .sort();
     const terminal = episode.technicalFailure ?? null;
-    const passed = episode.validActionCount === STABILITY_ACTION_TARGET
+    const passed = (assisted
+      ? episode.reliability?.autonomousDays === STABILITY_ACTION_TARGET
+        && episode.reliability.assistedDays === 0
+      : episode.validActionCount === STABILITY_ACTION_TARGET)
       && episode.status === "tool_limit"
       && terminal?.category === "action_budget"
       && metrics.requestCount >= STABILITY_ACTION_TARGET
@@ -137,6 +161,10 @@ export function buildProviderStabilityResult(
       providerReasoningEffort: agent.providerReasoningEffort ?? "default",
       passed,
       validActions: episode.validActionCount,
+      ...(assisted ? {
+        autonomousDays: episode.reliability?.autonomousDays ?? 0,
+        assistedDays: episode.reliability?.assistedDays ?? 0,
+      } : {}),
       invalidActions: episode.invalidActionCount,
       recoveredDecisions: episode.recoveredDecisionCount,
       requestCount: metrics.requestCount,
@@ -166,17 +194,27 @@ export function buildProviderStabilityResult(
     totalTokens: entries.reduce((sum, entry) => sum + entry.tokens.total, 0),
   });
   const body = {
-    artifactType: "arena-provider-stability-v1" as const,
+    artifactType: assisted
+      ? "arena-provider-stability-v2" as const
+      : "arena-provider-stability-v1" as const,
+    ...(assisted ? { runTrack: COMPLETION_RUN_TRACK } : {}),
     matchId: output.replay.matchId,
     createdAt,
     passed: entries.every(entry => entry.passed),
     configFingerprint,
     actionTargetPerAgent: STABILITY_ACTION_TARGET,
-    contextPolicyVersion: DIRECT_CONTEXT_POLICY_VERSION,
-    recoveryPolicyVersion: DIRECT_RECOVERY_POLICY_VERSION,
-    maxAttemptsPerDecision: DIRECT_MAX_ATTEMPTS_PER_DECISION,
+    ...(assisted ? { autonomousDayTargetPerAgent: STABILITY_ACTION_TARGET } : {}),
+    contextPolicyVersion: assisted
+      ? COMPLETION_CONTEXT_POLICY_VERSION
+      : DIRECT_CONTEXT_POLICY_VERSION,
+    recoveryPolicyVersion: assisted
+      ? COMPLETION_RECOVERY_POLICY_VERSION
+      : DIRECT_RECOVERY_POLICY_VERSION,
+    maxAttemptsPerDecision: assisted
+      ? COMPLETION_MAX_ATTEMPTS_PER_DAY
+      : DIRECT_MAX_ATTEMPTS_PER_DECISION,
     maxRepairRetriesPerDecision: DIRECT_MAX_REPAIR_RETRIES_PER_DECISION,
-    maxTransientRetriesPerDecision: DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
+    maxTransientRetriesPerDecision: assisted ? 2 as const : DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION,
     decisionTimeoutMs: audit.decisionTimeoutMs,
     attemptTimeoutMs: audit.attemptTimeoutMs,
     totalWallClockMsPerAgent: audit.totalWallClockMsPerAgent,
@@ -204,21 +242,37 @@ export function assertMatchingProviderStability(
   const summary = value as Partial<ProviderStabilityResult>;
   const { stabilitySummaryHash, ...body } = summary;
   const entries = Array.isArray(summary.entries) ? summary.entries : [];
+  const assisted = probe.runTrack === COMPLETION_RUN_TRACK;
   const ids = new Set(entries.map(entry => entry?.agentId));
   const slots = new Set(entries.map(entry => entry?.agentSlot));
-  if (summary.artifactType !== "arena-provider-stability-v1"
+  if (summary.artifactType !== (assisted
+    ? "arena-provider-stability-v2"
+    : "arena-provider-stability-v1")
+    || (summary.runTrack === COMPLETION_RUN_TRACK) !== assisted
+    || (!assisted && summary.runTrack !== undefined)
     || summary.matchId !== probe.matchId
     || summary.passed !== true
     || summary.configFingerprint !== configFingerprint
     || summary.actionTargetPerAgent !== STABILITY_ACTION_TARGET
-    || summary.contextPolicyVersion !== DIRECT_CONTEXT_POLICY_VERSION
-    || summary.recoveryPolicyVersion !== DIRECT_RECOVERY_POLICY_VERSION
-    || summary.maxAttemptsPerDecision !== DIRECT_MAX_ATTEMPTS_PER_DECISION
+    || (assisted && summary.autonomousDayTargetPerAgent !== STABILITY_ACTION_TARGET)
+    || summary.contextPolicyVersion !== (assisted
+      ? COMPLETION_CONTEXT_POLICY_VERSION
+      : DIRECT_CONTEXT_POLICY_VERSION)
+    || summary.recoveryPolicyVersion !== (assisted
+      ? COMPLETION_RECOVERY_POLICY_VERSION
+      : DIRECT_RECOVERY_POLICY_VERSION)
+    || summary.maxAttemptsPerDecision !== (assisted
+      ? COMPLETION_MAX_ATTEMPTS_PER_DAY
+      : DIRECT_MAX_ATTEMPTS_PER_DECISION)
     || summary.maxRepairRetriesPerDecision !== DIRECT_MAX_REPAIR_RETRIES_PER_DECISION
-    || summary.maxTransientRetriesPerDecision !== DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION
+    || summary.maxTransientRetriesPerDecision !== (assisted
+      ? 2
+      : DIRECT_MAX_TRANSIENT_RETRIES_PER_DECISION)
     || !Number.isSafeInteger(summary.decisionTimeoutMs)
     || Number(summary.decisionTimeoutMs) <= 0
-    || summary.attemptTimeoutMs !== directAttemptTimeoutMs(Number(summary.decisionTimeoutMs))
+    || summary.attemptTimeoutMs !== (assisted
+      ? Number(summary.decisionTimeoutMs)
+      : directAttemptTimeoutMs(Number(summary.decisionTimeoutMs)))
     || !Number.isSafeInteger(summary.totalWallClockMsPerAgent)
     || Number(summary.totalWallClockMsPerAgent) <= 0
     || summary.probe?.summaryHash !== probe.probeSummaryHash
@@ -227,7 +281,9 @@ export function assertMatchingProviderStability(
     || Number.isNaN(Date.parse(summary.createdAt))
     || entries.length !== 5
     || entries.some(entry => !entry || entry.passed !== true
-      || entry.validActions !== STABILITY_ACTION_TARGET
+      || (assisted
+        ? entry.autonomousDays !== STABILITY_ACTION_TARGET || entry.assistedDays !== 0
+        : entry.validActions !== STABILITY_ACTION_TARGET)
       || entry.providerReasoningEffort === "default"
       || entry.requestCount < STABILITY_ACTION_TARGET
       || entry.requestCount > STABILITY_ACTION_TARGET * DIRECT_MAX_ATTEMPTS_PER_DECISION

@@ -12,7 +12,7 @@ import {
   isProviderRecord,
   extractResponseModelRevision,
   normalizeProviderTokenUsage,
-  parseStrictJsonAction,
+  parseStrictJsonDecision,
   type ProviderResponseFacts,
   requireProviderValue,
   resolveProviderEndpoint,
@@ -29,6 +29,7 @@ export interface OpenAIChatCompletionsProviderOptions {
   readonly model: string;
   /** Enable the broadly supported `{type: "json_object"}` JSON mode. */
   readonly useJsonMode?: boolean;
+  readonly completionAssisted?: boolean;
   readonly maxOutputTokens?: number;
   /** DeepSeek thinking control. `default` omits the provider-specific request field. */
   readonly thinkingMode?: ProviderThinkingMode;
@@ -132,6 +133,7 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
   readonly #endpoint: string;
   readonly #fetch: typeof globalThis.fetch;
   readonly #useJsonMode: boolean;
+  readonly #useDailyPlanSchema: boolean;
   readonly #exchangeRecorder?: RawExchangeRecorder;
 
   constructor(options: OpenAIChatCompletionsProviderOptions) {
@@ -155,13 +157,14 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
     if (options.declaredModelRevision?.trim()) {
       this.declaredModelRevision = options.declaredModelRevision.trim();
     }
-    this.#useJsonMode = options.useJsonMode === true;
+    this.#useJsonMode = options.useJsonMode === true || options.completionAssisted === true;
+    this.#useDailyPlanSchema = options.completionAssisted === true && this.providerId === "qwen";
     this.samplingAudit = Object.freeze({
       policyVersion: "provider-explicit-effort-audited-v2",
       temperature: "omitted",
       topP: "omitted",
       maxOutputTokens: this.maxOutputTokens,
-      jsonMode: this.#useJsonMode ? "json-object" : "none",
+      jsonMode: this.#useDailyPlanSchema ? "json-schema" : this.#useJsonMode ? "json-object" : "none",
       thinking: Object.freeze({
         mode: this.thinkingMode,
         sent: this.thinkingMode !== "default",
@@ -179,6 +182,27 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
   }
 
   async requestDecision(input: DirectModelDecisionInput) {
+    const dailyPlanContract = input.decisionContract?.kind === "daily-plan"
+      ? input.decisionContract
+      : undefined;
+    const responseFormat = dailyPlanContract && this.#useDailyPlanSchema
+      ? {
+        type: "json_schema",
+        json_schema: {
+          name: "arena_daily_plan",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["planId", "destinationId"],
+            properties: {
+              planId: { type: "string", enum: dailyPlanContract.planIds },
+              destinationId: { type: "integer", enum: dailyPlanContract.destinationIds },
+            },
+          },
+        },
+      }
+      : this.#useJsonMode ? { type: "json_object" } : undefined;
     const body = {
       model: this.modelId,
       messages: [
@@ -193,7 +217,7 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       ...(this.reasoningEffort === "default"
         ? {}
         : { reasoning_effort: this.reasoningEffort }),
-      ...(this.#useJsonMode ? { response_format: { type: "json_object" } } : {}),
+      ...(responseFormat ? { response_format: responseFormat } : {}),
     };
 
     const requestHeaders = {
@@ -238,12 +262,13 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
     });
 
     if (!response.ok) {
-      const code = await classifyHttpFailure(response);
+      const classification = await classifyHttpFailure(response);
       throw new DirectProviderRequestError(
         this.providerId,
-        code,
+        classification.code,
         `${this.providerId} Chat Completions 返回 HTTP ${response.status}`,
         response.status,
+        { retryDisposition: classification.retryDisposition },
       );
     }
 
@@ -294,7 +319,7 @@ export class OpenAIChatCompletionsProvider implements DirectModelProviderAdapter
       ...(responseModelRevision ? { responseModelRevision } : {}),
       ...(usage ? { tokenUsage: usage } : {}),
     });
-    const action = parseStrictJsonAction(
+    const action = parseStrictJsonDecision(
       collectMessageText(payload, this.providerId, responseFacts),
       input,
       this.providerId,

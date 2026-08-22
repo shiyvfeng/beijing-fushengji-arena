@@ -1,23 +1,38 @@
 import type {
+  AssistanceReason,
   ArenaExecutionMode,
   ArenaEvent,
   CompetitionAudit,
   EpisodeTrace,
   FinalRankingEntry,
   GameStateSnapshot,
+  MatchReliabilityAudit,
   MatchReplay,
   ReplayAgent,
   ReplayAgentSnapshot,
   PersonalRandomEventAudit,
   ReplayDay,
   ScenarioConfig,
+  TechnicalFailureCategory,
 } from "../core/contracts.js";
 import {
+  ASSISTANCE_POLICY_VERSION,
   ARENA_SCHEMA_VERSION,
   RULESET_VERSION,
   SETTLEMENT_RULE_VERSION,
   TOOL_SCHEMA_VERSION,
 } from "../core/contracts.js";
+import {
+  COMPLETION_BACKOFF_SCHEDULE_MS,
+  COMPLETION_CANDIDATE_POLICY_VERSION,
+  COMPLETION_CIRCUIT_FAILURE_THRESHOLD,
+  COMPLETION_CIRCUIT_SKIP_SCHEDULE_DAYS,
+  COMPLETION_DAILY_PLAN_POLICY_VERSION,
+  COMPLETION_MAX_PLAN_CANDIDATES,
+  COMPLETION_MAX_PREP_ACTIONS,
+  COMPLETION_RUN_TRACK,
+  completionRate,
+} from "./completion-assisted.js";
 import { GameEnvironment } from "../core/game-environment.js";
 import {
   episodeConfigIntegrityHash,
@@ -31,6 +46,29 @@ import {
   integrityHash,
   stableHash,
 } from "../core/stable-value.js";
+
+const ASSISTANCE_REASONS = Object.freeze([
+  "transient_retries_exhausted",
+  "repair_retries_exhausted",
+  "non_retryable_failure",
+  "circuit_open",
+  "provider_time_budget_exhausted",
+] as const satisfies readonly AssistanceReason[]);
+const ASSISTANCE_REASON_SET = new Set<string>(ASSISTANCE_REASONS);
+const TECHNICAL_FAILURE_CATEGORY_SET = new Set<string>([
+  "timeout",
+  "total_wall_clock",
+  "context_limit",
+  "action_budget",
+  "invalid_action_loop",
+  "transport_error",
+  "http_error",
+  "invalid_response",
+  "invalid_action",
+  "refusal",
+  "incomplete",
+  "driver_error",
+] satisfies readonly TechnicalFailureCategory[]);
 
 function verifyTraceIntegrity(trace: EpisodeTrace): void {
   assertNoPotentialSecrets(trace, `EpisodeTrace ${trace.episodeId}`);
@@ -128,6 +166,38 @@ function validateTraceEvents(trace: EpisodeTrace, scenario: ScenarioConfig): voi
         || !/^sha256:[0-9a-f]{64}$/.test(event.fullContextHash ?? "")) {
         throw new Error(`Direct action 事件缺少 modelCallId/fullContextHash：${trace.episodeId}`);
       }
+    }
+    if (event.type === "assistance") {
+      const action = event.action as Readonly<Record<string, unknown>> | undefined;
+      const fact = event.assistance;
+      const triggerModelCallIds = Array.isArray(fact?.triggerModelCallIds)
+        ? fact.triggerModelCallIds
+        : [];
+      if (trace.driver !== "direct"
+        || action?.type !== "assisted_pass_day"
+        || !fact
+        || fact.policyVersion !== ASSISTANCE_POLICY_VERSION
+        || !ASSISTANCE_REASON_SET.has(fact.reason)
+        || !fact.failureCategory
+        || !TECHNICAL_FAILURE_CATEGORY_SET.has(fact.failureCategory)
+        || triggerModelCallIds.length < 1
+        || new Set(triggerModelCallIds).size !== triggerModelCallIds.length
+        || triggerModelCallIds.some(id => typeof id !== "string" || !id.trim())
+        || (fact.reason === "circuit_open"
+          ? !Number.isSafeInteger(fact.circuitSkipDaysRemaining)
+            || Number(fact.circuitSkipDaysRemaining) < 0
+          : fact.circuitSkipDaysRemaining !== undefined)
+        || event.modelCallId !== undefined
+        || event.fullContextHash !== undefined
+        || event.result.success !== true
+        || event.stateBefore.status !== "running"
+        || event.stateAfter.day !== event.stateBefore.day + 1
+        || event.stateAfter.currentLocation !== event.stateBefore.currentLocation
+        || event.stateAfter.currentMap !== event.stateBefore.currentMap) {
+        throw new Error(`assistance 事件状态语义无效：${trace.episodeId}`);
+      }
+    } else if (event.assistance !== undefined) {
+      throw new Error(`非 assistance 事件不得携带辅助事实：${trace.episodeId}`);
     }
     if (previousAfter && previousAfter.status !== "running" && event.type !== "finalize") {
       throw new Error(`EpisodeTrace 在终止状态后仍包含动作：${trace.episodeId}`);
@@ -412,6 +482,7 @@ export function assembleMatchReplay(
   tracesInput: readonly EpisodeTrace[],
   scenario: ScenarioConfig,
   competitionAudit?: CompetitionAudit,
+  reliabilityAudit?: MatchReliabilityAudit,
 ): MatchReplay {
   const traces = validateTraces(matchId, tracesInput, scenario);
   const traceMode = traces[0].driver;
@@ -425,17 +496,96 @@ export function assembleMatchReplay(
   if (executionMode === "scripted" && competitionAudit) {
     throw new Error("Scripted Replay 不得伪造 Direct competitionAudit");
   }
+  if (competitionAudit?.runTrack === COMPLETION_RUN_TRACK) {
+    if (!reliabilityAudit
+      || reliabilityAudit.policyVersion !== "completion-reliability-v1"
+      || reliabilityAudit.agents.length !== traces.length) {
+      throw new Error("Completion-Assisted Replay 缺少可靠性审计");
+    }
+    const expectedIds = new Set(traces.map(trace => trace.agentId));
+    const actualIds = new Set(reliabilityAudit.agents.map(agent => agent.agentId));
+    if (actualIds.size !== expectedIds.size
+      || [...actualIds].some(id => !expectedIds.has(id))) {
+      throw new Error("Completion-Assisted 可靠性审计 Agent 集合不匹配");
+    }
+    for (const score of reliabilityAudit.agents) {
+      const trace = traces.find(item => item.agentId === score.agentId)!;
+      const assistanceEvents = trace.events.filter(event => event.type === "assistance");
+      const assistedDays = assistanceEvents.length;
+      const autonomousDays = trace.events.filter(event => (
+        event.type === "action"
+        && (event.action as Readonly<Record<string, unknown>> | undefined)?.type === "move"
+        && event.result.success
+      )).length;
+      const observedReasons: Partial<Record<AssistanceReason, number>> = {};
+      for (const event of assistanceEvents) {
+        const reason = event.assistance!.reason;
+        observedReasons[reason] = (observedReasons[reason] ?? 0) + 1;
+      }
+      const reportedReasonEntries = Object.entries(score.assistanceReasons);
+      const reasonTotal = reportedReasonEntries.reduce((sum, [, count]) => sum + Number(count), 0);
+      const reasonsMatch = reportedReasonEntries.every(([reason, count]) => (
+        ASSISTANCE_REASON_SET.has(reason)
+        && Number.isSafeInteger(count)
+        && count >= 0
+      )) && ASSISTANCE_REASONS.every(reason => (
+        (score.assistanceReasons[reason] ?? 0) === (observedReasons[reason] ?? 0)
+      ));
+      const integerFields = [
+        score.advancedDays,
+        score.autonomousDays,
+        score.assistedDays,
+        score.providerAttemptedDays,
+        score.firstAttemptSuccessDays,
+        score.validPlanSelections,
+        score.selectionResponseCount,
+        score.retryCount,
+        score.circuitSkippedDays,
+        score.providerBudgetExhaustedDays,
+      ];
+      const rates = [
+        score.autonomousDayRate,
+        score.firstAttemptSuccessRate,
+        score.validSelectionRate,
+        score.providerRequestSuccessRate,
+      ];
+      if (integerFields.some(value => !Number.isSafeInteger(value) || value < 0)
+        || rates.some(value => !Number.isFinite(value) || value < 0 || value > 100)
+        || !Number.isFinite(score.providerWaitMs)
+        || score.providerWaitMs < 0
+        || score.advancedDays !== trace.finalResult.endDay
+        || score.autonomousDays !== autonomousDays
+        || score.assistedDays !== assistedDays
+        || score.advancedDays !== score.autonomousDays + score.assistedDays
+        || score.firstAttemptSuccessDays > score.providerAttemptedDays
+        || score.validPlanSelections > score.selectionResponseCount
+        || score.autonomousDayRate !== completionRate(score.autonomousDays, score.advancedDays)
+        || score.firstAttemptSuccessRate !== completionRate(
+          score.firstAttemptSuccessDays,
+          score.providerAttemptedDays,
+        )
+        || score.validSelectionRate !== completionRate(
+          score.validPlanSelections,
+          score.selectionResponseCount,
+        )
+        || score.circuitSkippedDays !== (observedReasons.circuit_open ?? 0)
+        || score.providerBudgetExhaustedDays
+          !== (observedReasons.provider_time_budget_exhausted ?? 0)
+        || reasonTotal !== assistedDays
+        || !reasonsMatch) {
+        throw new Error(`Completion-Assisted 可靠性审计无法与 Trace 对账：${score.agentId}`);
+      }
+    }
+  } else if (reliabilityAudit) {
+    throw new Error("Strict Direct 或 Scripted Replay 不得携带 Completion-Assisted 可靠性审计");
+  }
   if (competitionAudit) {
-    if (!Number.isSafeInteger(competitionAudit.maxActionsPerAgent)
+    const commonInvalid = !Number.isSafeInteger(competitionAudit.maxActionsPerAgent)
       || competitionAudit.maxActionsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.decisionTimeoutMs)
       || competitionAudit.decisionTimeoutMs <= 0
       || !Number.isSafeInteger(competitionAudit.attemptTimeoutMs)
       || competitionAudit.attemptTimeoutMs <= 0
-      || competitionAudit.attemptTimeoutMs !== Math.max(
-        1,
-        Math.floor(competitionAudit.decisionTimeoutMs / 2),
-      )
       || !Number.isSafeInteger(competitionAudit.totalWallClockMsPerAgent)
       || competitionAudit.totalWallClockMsPerAgent <= 0
       || !Number.isSafeInteger(competitionAudit.maxOutputTokensPerRequest)
@@ -443,15 +593,41 @@ export function assembleMatchReplay(
       || competitionAudit.maxOutputTokensPerRequest > 4_096
       || competitionAudit.maxAttemptsPerDecision !== 3
       || competitionAudit.maxRepairRetriesPerDecision !== 2
-      || competitionAudit.maxTransientRetriesPerDecision !== 1
       || competitionAudit.automaticRetries !== 2
       || competitionAudit.publicRandomization !== "shared-seed"
       || competitionAudit.personalRandomization !== "slot-isolated"
-      || competitionAudit.contextPolicyVersion !== "bounded-history-v1"
-      || competitionAudit.recoveryPolicyVersion !== "bounded-retry-v2"
       || competitionAudit.samplingPolicyVersion !== "provider-explicit-effort-audited-v2"
       || competitionAudit.slotRotation.version !== "cyclic-v1"
-      || competitionAudit.slotRotation.mappings.length !== 5) {
+      || competitionAudit.slotRotation.mappings.length !== 5;
+    const completionInvalid = competitionAudit.runTrack === COMPLETION_RUN_TRACK
+      && (competitionAudit.contextPolicyVersion !== "bounded-daily-history-v1"
+        || competitionAudit.recoveryPolicyVersion !== "completion-assisted-v1"
+        || competitionAudit.dailyPlanPolicyVersion !== COMPLETION_DAILY_PLAN_POLICY_VERSION
+        || competitionAudit.candidatePolicyVersion !== COMPLETION_CANDIDATE_POLICY_VERSION
+        || competitionAudit.assistancePolicyVersion !== ASSISTANCE_POLICY_VERSION
+        || competitionAudit.maxTransientRetriesPerDecision !== 2
+        || competitionAudit.maxDailyPlanCandidates !== COMPLETION_MAX_PLAN_CANDIDATES
+        || competitionAudit.maxPrepActionsPerDay !== COMPLETION_MAX_PREP_ACTIONS
+        || !Number.isSafeInteger(competitionAudit.maxDailyDecisionsPerAgent)
+        || competitionAudit.maxDailyDecisionsPerAgent < 1
+        || competitionAudit.maxDailyDecisionsPerAgent > scenario.totalDays
+        || competitionAudit.providerTimeBudgetMsPerAgent !== competitionAudit.totalWallClockMsPerAgent
+        || competitionAudit.attemptTimeoutMs !== competitionAudit.decisionTimeoutMs
+        || integrityHash(competitionAudit.backoffScheduleMs) !== integrityHash(COMPLETION_BACKOFF_SCHEDULE_MS)
+        || competitionAudit.circuitBreaker.failureThresholdDays !== COMPLETION_CIRCUIT_FAILURE_THRESHOLD
+        || integrityHash(competitionAudit.circuitBreaker.skipScheduleDays)
+          !== integrityHash(COMPLETION_CIRCUIT_SKIP_SCHEDULE_DAYS));
+    const strictInvalid = competitionAudit.runTrack !== COMPLETION_RUN_TRACK
+      && ((competitionAudit.runTrack !== undefined
+          && competitionAudit.runTrack !== "strict-direct-v1")
+        || competitionAudit.contextPolicyVersion !== "bounded-history-v1"
+        || competitionAudit.recoveryPolicyVersion !== "bounded-retry-v2"
+        || competitionAudit.maxTransientRetriesPerDecision !== 1
+        || competitionAudit.attemptTimeoutMs !== Math.max(
+          1,
+          Math.floor(competitionAudit.decisionTimeoutMs / 2),
+        ));
+    if (commonInvalid || completionInvalid || strictInvalid) {
       throw new Error("Direct Replay competitionAudit 的预算、恢复或随机策略无效");
     }
     const { rotationIndex, mappings } = competitionAudit.slotRotation;
@@ -472,6 +648,14 @@ export function assembleMatchReplay(
       if (trace.agent.decisionPolicyId !== competitionAudit.decisionPolicyId
         || trace.agent.decisionPolicyHash !== competitionAudit.decisionPolicyHash) {
         throw new Error(`Direct Replay 的统一决策策略与 Trace 不一致：${trace.episodeId}`);
+      }
+      const assistanceCount = trace.events.filter(event => event.type === "assistance").length;
+      if (competitionAudit.runTrack === COMPLETION_RUN_TRACK) {
+        if (trace.agent.decisionPolicyHash !== competitionAudit.decisionPolicyHash) {
+          throw new Error(`Completion-Assisted Trace 策略 hash 不一致：${trace.episodeId}`);
+        }
+      } else if (assistanceCount > 0) {
+        throw new Error(`Strict Direct Trace 不得包含 assistance：${trace.episodeId}`);
       }
     }
   }
@@ -547,9 +731,11 @@ export function assembleMatchReplay(
   }));
 
   const metadata = {
-    title: executionMode === "direct"
-      ? "北京浮生记 · 受控五模型展示赛"
-      : "北京浮生记 Arena · Scripted 样例赛",
+    title: competitionAudit?.runTrack === COMPLETION_RUN_TRACK
+      ? "北京浮生记 · Completion-Assisted 五模型展示赛"
+      : executionMode === "direct"
+        ? "北京浮生记 · 受控五模型展示赛"
+        : "北京浮生记 Arena · Scripted 样例赛",
     executionMode,
     agentCount: traces.length,
     totalDays: scenario.totalDays,
@@ -581,6 +767,7 @@ export function assembleMatchReplay(
     finalRanking: ranking,
     finalResults: agents.map(agent => ({ id: agent.id, finalResult: agent.finalResult })),
     personalRandomEventAudit,
+    ...(reliabilityAudit ? { reliabilityAudit } : {}),
   });
   const body = {
     schemaVersion: ARENA_SCHEMA_VERSION,
@@ -598,6 +785,7 @@ export function assembleMatchReplay(
     finalRanking: ranking,
     setupEvents,
     ...(competitionAudit ? { competitionAudit } : {}),
+    ...(reliabilityAudit ? { reliabilityAudit } : {}),
     personalRandomEventAudit,
     configHash,
     eventHash,
