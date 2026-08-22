@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type FormEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   useEffect,
   useMemo,
   useRef,
@@ -88,7 +89,7 @@ function Header({ replay, day }: { replay: ReplayArtifact; day: number }) {
       <div>
         <p className="eyebrow">DIRECT-ONLY ARENA · FACT REPLAY</p>
         <h1>{replay.title}</h1>
-        <p className="match-meta">{replay.matchId} · seed {replay.seed} · 第 {day}/40 天</p>
+        <p className="match-meta" aria-live="polite">{replay.matchId} · seed {replay.seed} · 第 {day}/40 天</p>
       </div>
       <div className="hash-block" data-replay-hash-marker="true">
         <span>{replay.executionMode === "direct" ? "受控五模型展示赛" : "内部 Scripted 回归"}</span>
@@ -127,10 +128,14 @@ function DayControls({
 }) {
   const [value, setValue] = useState(String(day));
   useEffect(() => setValue(String(day)), [day]);
+  const target = Number(value);
+  const targetIsValid = Number.isSafeInteger(target) && target >= 1 && target <= replay.totalDays;
+  const submitLabel = targetIsValid
+    ? `${target > day ? "揭示至" : "跳转至"}第 ${target} 天`
+    : "跳转";
   const submit = (event: FormEvent) => {
     event.preventDefault();
-    const target = Number(value);
-    if (Number.isSafeInteger(target) && target >= 1 && target <= replay.totalDays) onChange(target);
+    if (targetIsValid) onChange(target);
   };
   return (
     <section className="day-controls" aria-label="回放日期控制">
@@ -139,6 +144,8 @@ function DayControls({
         <span>第 {day} 天</span>
         <input
           type="range"
+          aria-label="回放日期"
+          aria-valuetext={`第 ${day} 天`}
           min="1"
           max={replay.totalDays}
           value={day}
@@ -147,8 +154,8 @@ function DayControls({
       </label>
       <button type="button" disabled={day === replay.totalDays} onClick={() => onChange(day + 1)}>下一天</button>
       <form onSubmit={submit}>
-        <input aria-label="跳转日期" type="number" min="1" max="40" value={value} onChange={event => setValue(event.target.value)} />
-        <button type="submit">跳转</button>
+        <input aria-label="跳转日期" type="number" min="1" max={replay.totalDays} value={value} onChange={event => setValue(event.target.value)} />
+        <button type="submit">{submitLabel}</button>
       </form>
     </section>
   );
@@ -360,14 +367,33 @@ function AgentModal({
   onClose: () => void;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLElement>(null);
   const profile = profileFor(replay, agentId);
   const snapshot = slice.latestDay.agents.find(agent => agent.agentId === agentId)!;
   useEffect(() => {
     closeRef.current?.focus();
   }, []);
+  const trapFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== "Tab") return;
+    const focusable = [...(dialogRef.current?.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? [])].filter(element => !element.hidden);
+    if (!focusable.length) return;
+    const first = focusable[0];
+    const last = focusable.at(-1)!;
+    const active = document.activeElement;
+    if (focusable.length === 1 || (!event.shiftKey && active === last) || (event.shiftKey && active === first)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  };
   return (
-    <div className="modal-backdrop" onMouseDown={event => { if (event.currentTarget === event.target) onClose(); }}>
-      <section className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style={agentStyle(replay, agentId)}>
+    <div className="modal-backdrop" onMouseDown={event => {
+      if (event.currentTarget !== event.target) return;
+      event.preventDefault();
+      onClose();
+    }}>
+      <section ref={dialogRef} className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="modal-title" style={agentStyle(replay, agentId)} onKeyDown={trapFocus}>
         <header>
           <span className="agent-mark" aria-hidden="true" />
           <div><p>数据截至第 {slice.visibleThroughDay} 天</p><h2 id="modal-title">{profile.label}</h2></div>
@@ -429,17 +455,29 @@ function exportVisibleFacts(replay: ReplayArtifact, slice: VisibleReplaySlice): 
 function Dashboard({ replay }: { replay: ReplayArtifact }) {
   const [day, setDay] = useState(1);
   const [selectedAgent, setSelectedAgent] = useState<AgentId | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const slice = useMemo(() => createVisibleReplaySlice(replay, day), [replay, day]);
+  const openAgent = (agentId: AgentId) => {
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelectedAgent(agentId);
+  };
+  const closeAgent = () => setSelectedAgent(null);
+  useEffect(() => {
+    if (selectedAgent !== null || !returnFocusRef.current) return;
+    const target = returnFocusRef.current;
+    returnFocusRef.current = null;
+    target.focus();
+  }, [selectedAgent]);
   useEffect(() => {
     const keydown = (event: KeyboardEvent) => {
       if (event.key === "Escape") setSelectedAgent(null);
       if ((event.target as HTMLElement | null)?.matches("input, button, textarea, select")) return;
       if (event.key === "ArrowLeft") setDay(value => Math.max(1, value - 1));
-      if (event.key === "ArrowRight") setDay(value => Math.min(40, value + 1));
+      if (event.key === "ArrowRight") setDay(value => Math.min(replay.totalDays, value + 1));
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, []);
+  }, [replay.totalDays]);
   return (
     <div className="arena-shell">
       <Header replay={replay} day={day} />
@@ -447,7 +485,7 @@ function Dashboard({ replay }: { replay: ReplayArtifact }) {
       <DayControls replay={replay} day={day} onChange={setDay} />
       <main>
         <div className="market-column"><PricesPanel day={slice.latestDay} /><PublicEventsPanel day={slice.latestDay} /></div>
-        <StandingsPanel replay={replay} day={slice.latestDay} onOpen={setSelectedAgent} />
+        <StandingsPanel replay={replay} day={slice.latestDay} onOpen={openAgent} />
         <ActionsPanel replay={replay} day={slice.latestDay} />
         <NetWorthChart replay={replay} slice={slice} />
         <Finale replay={replay} slice={slice} />
@@ -456,7 +494,7 @@ function Dashboard({ replay }: { replay: ReplayArtifact }) {
         <span>事实层哈希 <code>{replay.factLayerHash}</code></span>
         <button type="button" onClick={() => exportVisibleFacts(replay, slice)}>导出当前已揭示事实</button>
       </footer>
-      {selectedAgent && <AgentModal replay={replay} slice={slice} agentId={selectedAgent} onClose={() => setSelectedAgent(null)} />}
+      {selectedAgent && <AgentModal replay={replay} slice={slice} agentId={selectedAgent} onClose={closeAgent} />}
     </div>
   );
 }

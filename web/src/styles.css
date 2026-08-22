@@ -40,6 +40,7 @@ button, input[type="number"] { min-height: 36px; border: 1px solid var(--line); 
 button { cursor: pointer; }
 button:hover:not(:disabled) { border-color: rgba(240, 196, 91, .6); background: #1a2a31; }
 button:disabled { opacity: .35; cursor: default; }
+button:focus-visible, input:focus-visible, [tabindex]:focus-visible { outline: 3px solid #f0c45b; outline-offset: 3px; }
 
 .arena-shell > main { display: grid; grid-template-columns: minmax(270px, .78fr) minmax(500px, 1.3fr); gap: 14px; }
 .market-column { display: grid; gap: 14px; align-content: start; }
@@ -187,4 +188,13 @@ button:disabled { opacity: .35; cursor: default; }
   .modal-metrics div:nth-child(2n) { border-right: 0; }
   .modal-columns { grid-template-columns: 1fr; }
   .modal-columns section + section { border-left: 0; border-top: 1px solid var(--line); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0s !important;
+  }
 }

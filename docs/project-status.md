@@ -1,6 +1,6 @@
 # 北京浮生记 Arena 项目进度台账
 
-> 台账状态：待办 1 已实现并通过离线验证，进入真实 Provider 与浏览器验收
+> 台账状态：待办 1 已实现；待办 2 自动浏览器框架已通过 Fixture，进入三场真实 Provider 与正式浏览器验收
 >
 > 首次建立：2026-08-21
 >
@@ -8,7 +8,7 @@
 >
 > 产品方案基线：[《北京浮生记 Arena》娱乐化 Benchmark 产品与开发方案（v2.2，2026-08-22）](北京浮生记_Arena_娱乐化Benchmark产品与开发方案_v2.md)
 >
-> 本次边界：已完成待办 1 的代码、离线 Fake Provider、Replay/UI、测试和文档收口；未修改真实本地 `.env`，未发起在线 Provider 请求，未执行三场真实金样或待办 2 自动浏览器验收。
+> 本次边界：已完成待办 2 的 Playwright/Chromium 双视口框架、14/14 Fixture 浏览器检查、机器可读报告入口和必要可访问性修正；未修改真实本地 `.env`，未发起在线 Provider 请求，未执行三场真实金样或其正式浏览器报告。
 
 ## 1. 台账用途与更新规则
 
@@ -48,7 +48,7 @@
 
 | 范围 | 当前状态 | 审计结论 |
 | --- | --- | --- |
-| 修订后 Direct-only P0 | 已实现，待完整验收 | 五模型 Runner、事实 Replay/Web 和审计诊断边界已通过离线验证；仍需真实五 Provider Probe、3 场新版金样和可重复自动浏览器验收 |
+| 修订后 Direct-only P0 | 已实现，待完整验收 | 五模型 Runner、事实 Replay/Web、审计诊断边界和可重复浏览器框架已通过离线验证；仍需真实五 Provider Probe、3 场新版金样及每场正式浏览器报告 |
 | 当前四模型纵向切片 | 已验证，作为历史证据保留 | 四组独立配置、四请求 Probe、真实比赛、Replay/Trace/Report、单文件 HTML 和 Day 1～40 事实回放已经串通；不等于新版五模型 P0 已完成 |
 | P0.5 Replay Enrichment | 后续阶段 | 使用事实 Replay 生成程序化高光、采访、奖项、结局和可选 LLM 文案；配置与五组 Runner `Provider + model` 均不重复的第 6 个 Replay 娱乐加工模型，但赛后采访例外调用各选手原模型 |
 | P1 strict MCP | 后续阶段 | `StrictMcpEpisodePort` 仅保留接口占位；当前不开发、不验收，不纳入 P0 完成声明 |
@@ -69,7 +69,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 - 页面使用统一日期切片，第 40 天前不展示正式排名；
 - 离线页面不重新调用 Runner，也不改变事实 Replay。
 
-待办 1 已将目标契约落实到代码和必要元数据：恰好五个不同 `Provider + model`、`cyclic-v1` 轮换、`full-history-v1`、逐请求账本、Probe 门禁、原始交换诊断、`arena-schema-v3`、`run-report-v4` 和五模型事实页面均已实现。当前主要缺口是**真实验收而非 Runner 实现**：尚未执行真实五 Provider Probe、三场新版金样和可重复自动浏览器验收；P0.5 第六模型与 Enrichment 仍按计划后置。因此当前只能称“待办 1 已实现并通过离线验证”，不能宣称完整 P0 已验收。
+待办 1 已将五模型 Runner 契约落实到代码，待办 2 已将可重复浏览器矩阵落实为 Playwright/Chromium 双视口入口：恰好五个不同 `Provider + model`、`cyclic-v1`、`full-history-v1`、逐请求账本、Probe 门禁、诊断、v3 Replay/v4 Report、事实页面、Day 1/39/40、防剧透、DNF、hash、失败关闭、离线和键盘/焦点均有离线自动证据。当前主要缺口是**真实比赛验收**：尚未执行真实五 Provider Probe、三场新版金样及其正式浏览器报告；P0.5 第六模型与 Enrichment 仍按计划后置。因此不能宣称完整 P0 已验收。
 
 ### 2.3 已确认视觉方向
 
@@ -80,7 +80,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 
 ## 3. 当前证据快照
 
-### 3.1 待办 1 离线验证
+### 3.1 待办 1～2 离线验证
 
 | 检查 | 结果 | 证据边界 |
 | --- | --- | --- |
@@ -89,8 +89,10 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 | Web typecheck | 通过 | 执行 `npm --prefix web run typecheck` |
 | 五 Fake Provider Probe + Match | 通过 | 恰好五次 Probe、同目录门禁、五 Trace、v3 Replay、v4 Report 和单文件 HTML 完整闭环 |
 | Replay 确定性与敏感信息 | 通过 | 同一 Replay 重建字节一致；正式产物与诊断文件执行凭据扫描 |
+| 自动浏览器 Fixture | 14/14 通过 | Playwright 1.62.1、Chromium 151、1366×768 与 1920×1080；覆盖 Day 1/39/40、防剧透、DNF、hash、失败关闭、`file://` 离线和键盘/焦点 |
+| 机器可读验收报告 | 已验证 | `arena-browser-acceptance-v1` 记录输入 hash、HTML SHA-256、Node/Playwright/Chromium、双视口检查和失败原因 |
 
-本次没有运行真实 Provider Probe、完整付费比赛或浏览器自动验收。内部 Scripted 只参与确定性回归，不属于修订后 P0 产品验收证据。
+本次没有运行真实 Provider Probe、完整付费比赛或真实 Replay 正式浏览器验收。浏览器 14/14 结果来自确定性五模型 v3 Fixture；内部 Scripted 和 Fixture 都只参与回归，不属于修订后 P0 真实比赛证据。
 
 ### 3.2 真实 `run-001` 事实
 
@@ -119,7 +121,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 | 阶段 2：五模型 Direct Runner | 已实现，待真实验收 | 五组唯一配置、五 Episode、联网前门禁、`cyclic-v1`、独立失败和 Fake Provider 闭环均有测试 | 使用真实五 Provider 重新 Probe 并运行三场金样 |
 | 阶段 3：上下文与审计 | 已实现，待真实验收 | `full-history-v1`、完整 hash、revision/sampling、总墙钟、请求-event 对账、故障域与 Token 账本均有测试 | 在真实报告中复核 Provider 返回差异与上下文上限 |
 | 阶段 4：事实 Replay 与报告 | 已实现，待真实验收 | v3 五模型 Replay、v4 Report、个人随机原始计数、Probe v2、诊断开关和确定性重建均有测试 | 三场真实产物复核；历史 v2 保持不变 |
-| 阶段 5：事实观众页与自动验收 | 页面已实现，自动验收未完成 | 五模型 Provider + Model 身份、颜色纹理、自适应布局、防剧透、DNF 和 Day 40 原始计数已有单元测试 | 建立品牌无关、可重复的自动浏览器 P0 验收 |
+| 阶段 5：事实观众页与自动验收 | 框架已验证，待真实 Replay | Playwright/Chromium 双视口 Fixture 14/14；覆盖身份、Day 1/39/40、防剧透、DNF、hash、失败关闭、离线、控制台和键盘/焦点 | 三场真实金样分别生成正式 `browser-acceptance.json` |
 | 阶段 6：三场真实金样 | 未开始新版验收 | `run-001` 是四模型历史证据 | 新版五模型契约下完成 3 场真实金样；每场先 Probe，再使用独立输出目录；游戏死亡或技术 DNF 均如实记录，不自动判定 P0 失败 |
 | 阶段 7：P0.5 Replay Enrichment | 后续阶段 | 已确认事实层与娱乐层隔离原则 | 事实层稳定后，先做程序化高光，再做采访、奖项、结局和可选 LLM 文案；通用生成配置与五组 Runner 均不重复的第 6 个 Replay 娱乐加工模型 |
 | 阶段 8：P1 strict MCP | 后续阶段 | 仅有接口占位和禁止伪装实现的守卫 | P0 不开发、不验收；进入 P1 后另立计划 |
@@ -135,10 +137,10 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 | 上下文契约与审计 | 已验证 | `full-history-v1`、双 hash、revision、sampling、总墙钟、故障域和 Token 账本可重算 |
 | 事实 Replay | 已验证 | v3 强校验、五 Trace、个人随机原始计数与确定性重建完成；正式构建器拒绝 v2/四模型 |
 | 运行报告与诊断 | 已验证 | Probe v2、Report v4、逐请求账本和默认关闭的脱敏原始交换均有离线测试 |
-| 事实观众页 | 已实现，待浏览器验收 | 五模型 Provider + Model 身份、无策略 persona、Day 40 事实边界和自适应布局已完成 |
+| 事实观众页 | 已验证，待真实 Replay | 五模型身份、Day 1/39/40、无策略 persona、防剧透、DNF、失败关闭和双视口已通过浏览器 Fixture |
 | 离线交付 | 已验证 | 显式输入、失败保留 JSON、无远程依赖、可重复构建 |
 | 故障边界 | 基本完成 | 单 Agent 技术失败不影响其他 Agent；游戏内死亡和技术 DNF 都是需如实展示的比赛事实，不是 P0 自动失败门槛 |
-| 自动浏览器验收 | 未完成 | 不强制 Playwright 品牌，但完整 P0 必须具备可重复自动浏览器验收 |
+| 自动浏览器验收 | 框架已验证，正式报告 0/3 | Playwright/Chromium、双视口、单 worker、零重试、`file://` 离线和 JSON 报告入口已实现；仍需三场真实 Replay 逐场执行 |
 | 三场真实金样 | 未完成 | `run-001` 不符合新版五模型契约，当前计数为 0/3 |
 
 以下能力不属于 P0：Scripted 产品入口与金样、strict MCP、程序化高光、采访、奖项、结局、模型生成解说。Scripted 只保留为内部测试工具；其余分别进入 P0.5 或 P1。
@@ -149,7 +151,7 @@ Scripted 不再属于产品范围、P0 金样或产品待办；现有 Scripted �
 | --- | --- | --- | --- |
 | AUD-005 | 高 | 新版五模型真实金样为 0/3 | `run-001` 仅为历史四模型证据；完成实现和自动验收后，依次运行三场新版五模型金样 |
 | AUD-006 | 高 | `run-001` 的超时延迟统计不完整 | Kimi `samples=3`，旧报告延迟只覆盖前两次请求；保留旧事实，不回填，后续新版比赛验证修复后报告 |
-| AUD-007 | 高 | 可重复自动浏览器 P0 验收尚未建立 | 具体工具不限，必须自动覆盖日期边界、防剧透、DNF、hash、离线和失败关闭 |
+| AUD-007 | 高 | 正式自动浏览器报告仍为 0/3 | 框架与 Fixture 14/14 已通过；待 `run-002`～`run-004` 逐场输入真实 v3 Replay 并保存报告后关闭 |
 | AUD-010 | 中 | Arena 主体的 Git 提交边界尚未收口 | 产品负责人已确认私有协作并说明远端已改私有；本次未独立验证，也未操作 Git |
 | AUD-011 | 后续 | P0.5 Replay Enrichment 尚未实现 | 不阻塞 P0；事实层稳定后按“程序化高光 → 采访/奖项 → 可选 LLM”顺序启动 |
 
@@ -196,7 +198,7 @@ Replay Enrichment 的隔离补充约束：
 ## 10. 后续待办
 
 1. **已实现，待真实验收——五模型 Runner 及审计/诊断边界**：5 个不同 Provider + model、无公开 A–E/策略身份、`cyclic-v1`、`full-history-v1`、总墙钟、请求-event 关联、故障域、Token、Probe v2、原始交换开关、Replay v3/Web 和项目元数据均已完成离线验证；未调用真实 Provider。
-2. **建立可重复自动浏览器 P0 验收**：工具品牌不限，固定覆盖五模型页面、Day 1/39/40、防剧透、技术 DNF、Replay hash、离线依赖、失败关闭和主要键盘/可访问性路径。
+2. **已实现，待真实金样复跑——可重复自动浏览器 P0 验收**：Playwright/Chromium 固定覆盖五模型页面、Day 1/39/40、防剧透、技术 DNF、Replay/fact hash、`file://` 离线、失败关闭、控制台、双视口和主要键盘/焦点路径；Fixture 14/14 已通过，正式报告仍为 0/3。
 3. **完成三场新版五模型真实金样**：每场先执行五 Provider Probe，再用独立目录运行。由于 `run-001` 是四模型历史证据、不计新版金样，应依次完成 `run-002`、`run-003` 和第三场新版五模型运行（建议目录 `run-004`）；每场如实记录死亡与技术 DNF，并人工复盘，不以零 DNF 或全员 Day 40 为门槛。
 4. **事实层稳定后启动 P0.5 Replay Enrichment**：先实现程序化高光和导演筛选的关键事件对比，再加入赛后采访、奖项、结局和可选 LLM 文案；通用生成启用与五组 Runner 均不重复的第 6 个加工模型，采访原模型例外建立历史截面与不回写 Runner 的隔离测试。
 
@@ -204,6 +206,7 @@ Replay Enrichment 的隔离补充约束：
 
 | 日期 | 记录 |
 | --- | --- |
+| 2026-08-22 | 实现待办 2：加入 Playwright 1.62.1 与 Chromium 双视口验收、Fixture/正式 Replay 两类入口、`arena-browser-acceptance-v1` 报告、重复构建/现有 HTML hash 核对和必要焦点/reduced-motion 修正；确定性五模型 v3 Fixture 14/14 通过，`run-001` v2 与已知测试替身标记均被正式入口拒绝；未调用真实 Provider，三场正式报告仍为 0/3 |
 | 2026-08-22 | 实现待办 1：五模型 Direct Runner、全历史上下文、逐请求账本、Probe 门禁、审计诊断、Replay v3/Report v4、五模型事实页面和 Arena 主包元数据；完成 Fake Provider 离线闭环，未调用真实 Provider、未执行三场金样或自动浏览器验收 |
 | 2026-08-22 | 根据产品负责人对 `DEC-001`～`DEC-013` 及后续澄清的确认，将目标统一为修订后 Direct-only P0：五个不同 Provider + model 同场、独立第 6 个 Replay 娱乐加工模型、三场新版真实金样；Scripted 仅保留内部回归，strict MCP 移 P1，叙事移 P0.5；完成相关 Markdown 收口并形成四步后续待办，未修改代码、配置或比赛产物 |
 | 2026-08-21 | 确认 `04-dark-actions-and-event.png` 为唯一当前视觉方向；其他三版转为历史探索；该确认不自动改变叙事功能范围 |

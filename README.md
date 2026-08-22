@@ -1,6 +1,6 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；真实五 Provider Probe、三场新版金样和自动浏览器验收尚未执行，因此当前状态是“待办 1 已实现并通过离线验证”，不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
+当前产品主线是 **Direct Arena**。待办 1 已把源码升级为五个不同 `Provider + Model` 的 Direct-only Runner，并完成 Fake Provider 离线闭环；待办 2 已建立 Playwright/Chromium 自动浏览器框架，并以确定性五模型 v3 Fixture 在双视口通过 14/14 检查。真实五 Provider Probe、三场新版金样及其正式浏览器报告仍未执行，因此当前不是完整 P0 已验收。2026-08-21 的四槽 `run-001` 继续作为不可回填的历史证据保留。
 
 ![北京浮生记](image.png)
 
@@ -23,7 +23,7 @@ P0 至少完成 3 场新版五模型 Direct 比赛。游戏内死亡、破产或
 
 Runner 只负责事实比赛：所有参赛模型使用 `neutral-v1`、无身份 Observation 和 `full-history-v1`。每次请求包含固定系统指令、当前 Observation，以及本局此前全部 action、result、effects 和 state diff；不发送旧 Observation、不摘要、不截断，也不包含展示名称、persona、slot、Provider、model、其他参赛者、审计 ID、叙事或跨局结果。公共市场共享 seed，个人随机事件按 slot 隔离。技术 DNF 只影响对应 Agent，其他 Agent 继续。正式 UI 只显示 `Provider + Model`，Day 40 只展示正式排名、DNF 与个人随机事件原始计数。
 
-Arena 工具链要求 Node.js 22.18 或更高版本。离线测试使用 Fake Provider/Fake Fetch；测试通过不等于真实 Provider 已在线验收。
+Arena 工具链要求 Node.js 22.18 或更高版本；Playwright 浏览器验收固定使用其当前支持的 Node 22/24/26。离线测试使用 Fake Provider/Fake Fetch；Fixture 浏览器测试通过不等于真实 Provider 已在线验收。
 
 ### 当前五模型命令
 
@@ -32,6 +32,17 @@ npm ci
 npm --prefix web ci
 npm run test:arena
 npm --prefix web run typecheck
+
+# 首次使用自动浏览器验收时单独安装 Chromium
+npm run arena:browser:install
+
+# 确定性五模型 Fixture；只证明浏览器框架与固定边界
+npm run test:arena-browser:fixture
+
+# 对真实五模型 Direct Replay 生成机器可读正式报告；不会调用 Provider
+npm run test:arena-browser -- \
+  --input <run-directory>/replay.json \
+  --report <run-directory>/browser-acceptance.json
 
 # 查看或脱敏检查 Direct 配置（不会发起请求）
 npm run arena:direct -- --help
@@ -59,7 +70,7 @@ Scripted 模式只保留为内部确定性回归工具，不属于产品范围�
 
 已完成一次四 Provider Probe 和一次真实受控展示赛：四个槽位均实际收到请求；OpenAI、Anthropic 和 DeepSeek 得到有效比赛结果，Kimi 在 Day 1 超时后仅对应槽位技术 DNF，其他三局继续结算。Replay、Trace、运行报告和离线 HTML 均已生成并完成 Day 1/39/40 浏览器验收。该结论是四槽历史基线，只对应本次具名配置与本地产物，不满足修订后的五模型 P0，也不表示未来凭据、模型或网关无需重新 Probe。完整数字、hash、浏览器证据和已知延迟统计限制见 [2026-08-21 真实验收记录](docs/arena-direct-acceptance-2026-08-21.md)。
 
-正式页面没有模拟 fallback；缺少或无法验证五模型 `arena-schema-v3` Replay 时会直接停止展示。新版正式构建器拒绝 v2 和四模型 Replay，历史 `run-001` 的 JSON、hash、报告和 HTML 保持原样，但不再保证可由当前 `arena:replay` 重建。历史边界见 [Direct-only Arena v0 说明](docs/arena-v0.md)。下一交付目标仅限本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。具体工具品牌不是硬要求，但 P0 必须具备可重复的自动浏览器验收，并同时保留单文件 `file://` 断网验收。
+正式页面没有模拟 fallback；缺少或无法验证五模型 `arena-schema-v3` Replay 时会直接停止展示。新版正式构建器与浏览器验收入口都拒绝 v2、四模型 Replay 和已知 Fake/Fixture/Scripted 测试标记；历史 `run-001` 的 JSON、hash、报告和 HTML 保持原样。自动验收固定覆盖 Day 1/39/40、防剧透、技术 DNF、hash、失败关闭、`file://` 断网、控制台、键盘、焦点和 1366×768/1920×1080 布局；正式模式还会重复构建 HTML 并核对同目录产物。Fixture 通过不替代三场真实金样报告。历史边界见 [Direct-only Arena v0 说明](docs/arena-v0.md)。下一交付目标仅限本地研究、线下展示和私有仓库协作，不包含公网托管或公开发布。
 
 ## Legacy OpenClaw / MCP（非当前 Direct P0）
 

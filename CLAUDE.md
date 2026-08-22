@@ -6,8 +6,8 @@
 
 北京浮生记 Arena 是一个 Direct Model 娱乐化 Benchmark：模型通过统一事实环境独立完成 40 天交易游戏，Runner 产出可审计 Replay、Trace、运行报告和单文件离线页面。
 
-- **当前源码事实**：待办 1 已实现五个不同 `Provider + Model` 的 Direct Runner、`arena-schema-v3` Replay/Web 和审计诊断边界，并通过离线 Fake Provider 验证。
-- **待验收目标**：执行真实五 Provider Probe、至少 3 场新版 Direct 金样，以及可重复自动浏览器验收；完成前不能称完整 P0 已验收。
+- **当前源码事实**：待办 1 已实现五个不同 `Provider + Model` 的 Direct Runner、`arena-schema-v3` Replay/Web 和审计诊断边界；待办 2 已建立 Playwright/Chromium 双视口自动浏览器框架，并通过确定性五模型 v3 Fixture 14/14 验证。
+- **待验收目标**：执行真实五 Provider Probe、至少 3 场新版 Direct 金样，并为每场保存正式自动浏览器报告；完成前不能称完整 P0 已验收。
 - **历史证据**：2026-08-21 的 `run-001` 固定为四槽 v2，不计新版金样，也不回填。
 - **P0.5**：独立 Replay Enrichment，默认使用与五个 Runner 配置分离的第六模型配置。
 - **P1**：strict MCP。仓库原 MCP Server 仅为 legacy 入口。
@@ -34,6 +34,11 @@ npm run test:arena-core
 npm --prefix web test
 npm --prefix web run typecheck
 
+# 浏览器验收只使用 Playwright 当前支持的 Node 22/24/26
+npm run arena:browser:install
+npm run test:arena-browser:fixture
+npm run test:arena-browser -- --input <run-directory>/replay.json --report <run-directory>/browser-acceptance.json
+
 # 五组 Direct 配置检查；不联网
 npm run arena:direct -- --check-config
 
@@ -56,7 +61,7 @@ Scripted 相关命令只保留为内部确定性回归工具，不属于产品�
 - `src/arena-direct-cli.ts`：A...E 配置、Probe 门禁、显式在线授权和事实产物写入。
 - `web/src/`：正式 Replay 适配、日期切片、事实观众页和失败关闭。
 - `scripts/build-arena-replay.mjs`：显式输入 Replay，校验 hash，构建单文件离线 HTML。
-- `tests/core/`、`web/tests/`：核心、Provider、Runner、Replay 和 Web 回归。
+- `tests/core/`、`web/tests/`、`tests/browser/`：核心、Provider、Runner、Replay、Web 和 Playwright 双视口回归。
 - `src/index.ts`、旧 `game-engine.ts` 等：legacy MCP 入口，不是当前 Arena 核心。
 
 `GameEnvironment` 是 Direct Runner 的唯一事实核心。每个参赛者使用独立 Episode；公共市场共享 seed，个人随机按 slot 隔离。单个 Agent 技术失败不能阻塞其他 Agent，技术 DNF 不获得正式名次。
@@ -90,7 +95,7 @@ P0.5 Replay Enrichment 只能读取已完成的事实 Replay：
 - 正式页面没有 sample fallback；Replay 缺失、无效或 hash 不匹配时必须停止展示。
 - Day 1～39 不得泄露终局排名或最终派生标签；Day 40 排名直接来自核心 `finalRanking`。
 - 单文件 HTML 必须支持 `file://` 断网打开，不包含运行时远程依赖或模型调用。
-- 自动浏览器工具品牌不强制，但可重复的自动浏览器验收是 P0 硬要求；同时保留 `file://` 断网人工/自动核验。
+- 自动浏览器工具品牌不强制；当前 Playwright 入口固定覆盖 `file://` 断网、双视口、日期边界、防剧透、DNF、失败关闭与键盘/焦点。Fixture 通过只证明框架，三场真实 Replay 必须分别保存正式报告。
 - 视觉以 `design/imagegen-shared-interview-stage-2026-08-20/04-dark-actions-and-event.png` 的宏观骨架和深色语言为基准；该图只有四位历史概念角色，不能当作五模型事实 UI 或功能验收证据。
 
 ## 安全、产物与 Git

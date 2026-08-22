@@ -24,17 +24,21 @@
     "internal:arena:sample": "npm run build && node dist/arena-cli.js --replay-only --output dist/arena-demo/replay.json",
     "arena:direct": "node scripts/run-arena-direct.mjs --",
     "arena:replay": "node scripts/build-arena-replay.mjs",
+    "arena:browser:install": "playwright install chromium",
     "model:list": "node tools/model-list-query/query-models.mjs",
     "internal:build:arena": "node scripts/build-arena-demo.mjs",
     "test:arena-core": "npm run build && node --test tests/core/*.test.mjs",
     "test:arena-web": "npm --prefix web test",
+    "test:arena-browser": "node scripts/run-arena-browser-acceptance.mjs",
+    "test:arena-browser:fixture": "node scripts/run-arena-browser-acceptance.mjs --fixture",
     "test:arena": "npm run test:arena-core && npm run test:arena-web"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^22.13.10"
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
   }
 }

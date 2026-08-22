@@ -1,6 +1,6 @@
 # Arena Design QA
 
-> 当前状态：五模型事实页面已随待办 1 实现并通过单元测试，待办 2 的可重复自动浏览器验收尚未执行，因此新版 P0 仍未验收。本文原有的笼统“通过”结论只对应旧 development fallback/四模型演示实现，已转为历史证据。
+> 当前状态：五模型事实页面已随待办 1 实现；待办 2 已建立 Playwright/Chromium 可重复自动浏览器框架，并以确定性五模型 v3 Fixture 在 1366×768、1920×1080 下通过 14/14 检查。三场真实五模型 Replay 的正式报告尚未产生，因此新版 P0 仍未验收。本文原有的笼统“通过”结论只对应旧 development fallback/四模型演示实现，已转为历史证据。
 
 ## 历史参考与证据
 
@@ -37,9 +37,26 @@
 
 - 同一 `replay.html` 必须通过 `file://` 断网打开，并确认没有 `fetch`、XHR、WebSocket、EventSource、外链脚本、外链样式或模型调用。
 - 可临时通过仅绑定 `127.0.0.1` 的本地静态服务执行 DOM、控制台和交互自动化，但 localhost 不能替代 `file://` 验收。
-- 自动浏览器验收是 P0 硬要求，工具品牌不强制；可使用 Playwright、内置浏览器、Chrome 控制或其他等价工具，但命令、输入 Replay、视口、断言和结果必须可重复。
+- 自动浏览器验收是 P0 硬要求，工具品牌不强制；当前实现选择 Playwright 1.62.1 + Chromium，命令、输入 Replay、视口、断言和结果均可重复。
 - 控制台应为 0 error、0 warning；浏览器自动请求 `/favicon.ico` 的已解释 404 可单独记录。
 - 同一 Replay、源码和锁文件重复构建的 HTML SHA-256 应一致。
+
+当前自动入口：
+
+```bash
+# 一次性安装与锁文件匹配的 Chromium
+npm run arena:browser:install
+
+# 固定边界回归，不属于真实比赛证据
+npm run test:arena-browser:fixture
+
+# 三场真实比赛分别执行并保存独立报告
+npm run test:arena-browser -- \
+  --input <run-directory>/replay.json \
+  --report <run-directory>/browser-acceptance.json
+```
+
+Fixture 已自动覆盖五模型身份、Day 1/39/40、防剧透页面/弹窗/ARIA/导出、技术 DNF、Replay/fact hash、缺失与篡改 Replay 失败关闭、`file://` 离线与零远程请求、控制台、键盘、焦点、reduced-motion 和双视口水平溢出。正式入口额外要求输入为五模型 v3 Direct、存在同目录 HTML，拒绝已知 Fake/Fixture/Scripted 测试标记，并要求两次临时重建与现有 HTML 的 SHA-256 完全一致。浏览器工具不单独证明上游 Provider 的真实性；仍须结合 Probe、Runner 产物和运行记录判断。Fixture 结果不会把本文件状态改成“通过”。
 
 ## P0.5 Replay Enrichment 验收边界
 

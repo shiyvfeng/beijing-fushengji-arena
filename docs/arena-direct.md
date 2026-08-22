@@ -1,6 +1,6 @@
 # Direct Arena 运行说明
 
-> 当前状态（2026-08-22）：待办 1 的五模型 Runner、审计/诊断边界、`arena-schema-v3` Replay 和事实观众页已实现，并通过离线 Fake Provider 验证。本文没有授权或记录真实 Provider 请求；三场真实金样与自动浏览器验收仍待后续完成，因此不能称完整 P0 已验收。
+> 当前状态（2026-08-22）：待办 1 的五模型 Runner、审计/诊断边界、`arena-schema-v3` Replay 和事实观众页已实现；待办 2 的 Playwright/Chromium 自动浏览器框架已在确定性五模型 v3 Fixture 上完成双视口 14/14 验证。本文没有授权或记录真实 Provider 请求；三场真实金样及其正式浏览器报告仍待完成，因此不能称完整 P0 已验收。
 
 ## 五模型 Direct 契约
 
@@ -163,19 +163,48 @@ npm run arena:replay -- --input <replay.json>
 
 观众页标题为“受控五模型展示赛”，身份只显示 `Provider + Model`。五个模型使用与 slot 无关的颜色和纹理，动作区采用自适应最小宽度布局。Day 1–39 不泄露终局；Day 40 只显示正式排名、DNF 和可对账的个人随机事件原始计数，技术 DNF 无正式名次。导出、弹窗、ARIA 和页面文本不得显示 A–E、策略名或 persona。
 
-单文件 HTML 必须支持 `file://` 断网打开，不包含 Provider 调用或远程运行时依赖。自动浏览器验收属于待办 2，本待办只完成 Replay/Web 实现与单元测试。
+单文件 HTML 必须支持 `file://` 断网打开，不包含 Provider 调用或远程运行时依赖。日期跳转、导出、弹窗与 ARIA 共用同一事实切片；弹窗约束焦点并在关闭后归还触发卡片，页面支持 reduced-motion。
+
+## 自动浏览器验收
+
+浏览器验收使用锁文件中的 Playwright 与配套 Chromium，固定 `1366×768`、`1920×1080` 两个项目、单 worker、零重试。Playwright 当前验收入口只接受 Node 22/24/26；这不收窄 Arena 主包的运行时 engine。
+
+首次安装浏览器：
+
+```bash
+npm run arena:browser:install
+```
+
+确定性 Fixture 回归：
+
+```bash
+npm run test:arena-browser:fixture
+```
+
+该命令固定覆盖五模型身份、Day 1/39/40、防剧透导出、技术 DNF、Replay/fact hash、缺失或篡改 Replay 的失败关闭、`file://` 离线、零远程请求、零控制台 error/warning、键盘、焦点、reduced-motion 和双视口无水平溢出。Fixture 使用测试数据，只证明框架与边界，不能作为真实模型证据。
+
+真实比赛完成后，在不调用 Provider、不覆盖任何比赛产物的前提下执行：
+
+```bash
+npm run test:arena-browser -- \
+  --input <run-directory>/replay.json \
+  --report <run-directory>/browser-acceptance.json
+```
+
+正式入口要求输入 v3 Direct、五个唯一 `Provider + model` 和同目录 `replay.html`，并拒绝内置 Fake、Fixture、Scripted 等已知测试替身标记。它在系统临时目录重复构建 HTML 两次，要求 SHA-256 字节一致且与现有 HTML 相同，然后运行同一浏览器矩阵。无论通过或失败，显式报告路径都会得到 `arena-browser-acceptance-v1` JSON；报告记录 Replay/fact/HTML hash、Node/Playwright/Chromium 版本、双视口检查和失败原因。失败截图与 trace 只写到报告旁的诊断目录，不进入事实 hash。浏览器工具不会联网复核 Provider 身份，真实来源仍须由同场 Probe、Runner 产物和运行记录共同证明；仅把测试替身改名不能把它升级为真实证据。
 
 ## 离线验证与未完成项
 
 ```bash
 npm run test:arena
 npm --prefix web run typecheck
+npm run test:arena-browser:fixture
 git diff --check
 ```
 
-测试覆盖五 Fake Provider Probe + Match、上下文全历史、账本对账、故障隔离、轮换、诊断脱敏、v3 失败关闭、Replay 重建确定性和敏感信息扫描。Fake Provider/Fake Fetch 通过不代表真实账户、模型 ID、配额、上下文窗口或 JSON mode 在线可用。
+测试覆盖五 Fake Provider Probe + Match、上下文全历史、账本对账、故障隔离、轮换、诊断脱敏、v3 失败关闭、Replay 重建确定性、敏感信息扫描和上述 14 项双视口浏览器检查。Fake Provider/Fake Fetch 与浏览器 Fixture 通过不代表真实账户、模型 ID、配额、上下文窗口或 JSON mode 在线可用。
 
-后续仍需：待办 2 的可重复自动浏览器验收，以及待办 3 的真实五 Provider Probe 和三场新版金样。2026-08-21 四槽 `run-001` 只保留为历史证据，不计新版验收。
+后续仍需待办 3 的真实五 Provider Probe 和三场新版金样，并对每场保存正式 `browser-acceptance.json`。2026-08-21 四槽 `run-001` 只保留为历史证据，v2 会被新版浏览器验收入口拒绝。
 
 ## Replay Enrichment 与 legacy 边界
 
