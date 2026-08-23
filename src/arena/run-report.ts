@@ -62,6 +62,11 @@ export interface ArenaDirectRunReport {
   readonly probe: {
     readonly summaryHash: string;
     readonly createdAt: string;
+    readonly passed: boolean;
+    readonly waiver?: {
+      readonly hash: string;
+      readonly disposition: "explicit-failed-probe-waiver";
+    };
   };
   readonly stability: {
     readonly summaryHash: string;
@@ -137,6 +142,9 @@ interface RunReportOptions {
   readonly providerTimeBudgetMs?: number;
   readonly probeSummaryHash: string;
   readonly probeCreatedAt: string;
+  readonly probePassed?: boolean;
+  readonly probeWaiverHash?: string;
+  readonly probeWaiverDisposition?: "explicit-failed-probe-waiver";
   readonly stabilitySummaryHash: string;
   readonly stabilityCreatedAt: string;
   readonly stabilityPassed?: boolean;
@@ -286,6 +294,15 @@ export function buildDirectRunReport(
     || Number.isNaN(Date.parse(options.stabilityCreatedAt))) {
     throw new Error("Direct run-report 的 Probe 或 Stability 摘要引用无效");
   }
+  const probePassed = options.probePassed ?? true;
+  const hasProbeWaiver = options.probeWaiverHash !== undefined
+    || options.probeWaiverDisposition !== undefined;
+  if ((probePassed && hasProbeWaiver)
+    || (!probePassed && (!completionAssisted
+      || !/^sha256:[0-9a-f]{64}$/u.test(options.probeWaiverHash ?? "")
+      || options.probeWaiverDisposition !== "explicit-failed-probe-waiver"))) {
+    throw new Error("Direct run-report 的 Probe 通过或豁免状态无效");
+  }
   const stabilityPassed = options.stabilityPassed ?? true;
   const stabilitySkipped = options.stabilitySkipped ?? false;
   const hasStabilityWaiver = options.stabilityWaiverHash !== undefined
@@ -430,6 +447,13 @@ export function buildDirectRunReport(
     probe: Object.freeze({
       summaryHash: options.probeSummaryHash,
       createdAt: options.probeCreatedAt,
+      passed: probePassed,
+      ...(hasProbeWaiver ? {
+        waiver: Object.freeze({
+          hash: options.probeWaiverHash!,
+          disposition: options.probeWaiverDisposition!,
+        }),
+      } : {}),
     }),
     stability: Object.freeze({
       summaryHash: options.stabilitySummaryHash,

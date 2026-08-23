@@ -96,6 +96,7 @@ interface DirectCliOptions {
   readonly probeProviders: boolean;
   readonly stabilityProbe: boolean;
   readonly completionAssisted: boolean;
+  readonly acceptAssistedProbe: boolean;
   readonly acceptAssistedStability: boolean;
   readonly skipAssistedStability: boolean;
 }
@@ -108,6 +109,7 @@ interface EnvFileSelection {
 
 interface ArtifactTargets {
   readonly probe: string;
+  readonly probeWaiver: string;
   readonly stability: string;
   readonly stabilityWaiver: string;
   readonly replay: string;
@@ -144,6 +146,7 @@ function usage(): string {
     "  --probe-providers                 五组并行各请求一次并原子写 probe-summary.json",
     "  --stability-probe                 五组并行各完成 10 个自主游戏日并写 stability-summary.json",
     "  --confirm-live-run                完整比赛必须显式确认并通过同目录 Probe + Stability 门禁",
+    "  --accept-assisted-probe           仅 Assisted Match：保留失败 Probe 并显式豁免 Match 门禁",
     "  --accept-assisted-stability       仅 Assisted Match：保留失败事实并显式豁免已结算的辅助日",
     "  --skip-assisted-stability         仅 Assisted Match：显式跳过 Stability 并写入未通过/已跳过证据",
     "  --check-config                    脱敏检查，不联网、不写产物",
@@ -292,6 +295,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   let probeProviderConnections = false;
   let stabilityProbe = false;
   let completionAssisted = false;
+  let acceptAssistedProbe = false;
   let acceptAssistedStability = false;
   let skipAssistedStability = false;
 
@@ -316,6 +320,10 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     }
     if (argument === "--completion-assisted") {
       completionAssisted = true;
+      continue;
+    }
+    if (argument === "--accept-assisted-probe") {
+      acceptAssistedProbe = true;
       continue;
     }
     if (argument === "--accept-assisted-stability") {
@@ -435,6 +443,9 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
   if (acceptAssistedStability && (!completionAssisted || !confirmLiveRun)) {
     throw new Error("--accept-assisted-stability 只能与 --completion-assisted --confirm-live-run 同时使用");
   }
+  if (acceptAssistedProbe && (!completionAssisted || !confirmLiveRun)) {
+    throw new Error("--accept-assisted-probe 只能与 --completion-assisted --confirm-live-run 同时使用");
+  }
   if (skipAssistedStability && (!completionAssisted || !confirmLiveRun)) {
     throw new Error("--skip-assisted-stability 只能与 --completion-assisted --confirm-live-run 同时使用");
   }
@@ -465,6 +476,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
     probeProviders: probeProviderConnections,
     stabilityProbe,
     completionAssisted,
+    acceptAssistedProbe,
     acceptAssistedStability,
     skipAssistedStability,
   };
@@ -473,6 +485,7 @@ function parseArgs(args: readonly string[]): DirectCliOptions | null {
 function artifactTargets(outputDir: string): ArtifactTargets {
   return {
     probe: join(outputDir, "probe-summary.json"),
+    probeWaiver: join(outputDir, "probe-waiver.json"),
     stability: join(outputDir, "stability-summary.json"),
     stabilityWaiver: join(outputDir, "stability-waiver.json"),
     replay: join(outputDir, "replay.json"),
@@ -502,6 +515,101 @@ function atomicWriteJson(path: string, value: unknown): void {
   const temporary = `${path}.tmp`;
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, "utf8");
   renameSync(temporary, path);
+}
+
+interface ProbeWaiverRecord {
+  readonly artifactType: "arena-probe-waiver-v1";
+  readonly runTrack: typeof COMPLETION_RUN_TRACK;
+  readonly matchId: string;
+  readonly createdAt: string;
+  readonly scope: "match-gate-only";
+  readonly disposition: "explicit-failed-probe-waiver";
+  readonly probeSummaryHash: string;
+  readonly probePassed: false;
+  readonly failedEntries: readonly {
+    readonly agentId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly category: string;
+    readonly domain: string;
+  }[];
+  readonly waiverHash: string;
+}
+
+function probeWaiverBody(
+  probe: ProviderProbeResult,
+  createdAt: string,
+): Omit<ProbeWaiverRecord, "waiverHash"> {
+  if (probe.runTrack !== COMPLETION_RUN_TRACK || probe.passed !== false) {
+    throw new Error("Probe 豁免只适用于未通过的 completion-assisted-v1 摘要");
+  }
+  const failedEntries = probe.entries
+    .filter(entry => !entry.passed)
+    .map(entry => {
+      if (!entry.fault) throw new Error("Probe 豁免要求失败项包含故障事实");
+      return Object.freeze({
+        agentId: entry.agentId,
+        provider: entry.provider,
+        model: entry.model,
+        category: entry.fault.category,
+        domain: entry.fault.domain,
+      });
+    });
+  if (failedEntries.length === 0) throw new Error("Probe 豁免要求至少一项失败事实");
+  return {
+    artifactType: "arena-probe-waiver-v1",
+    runTrack: COMPLETION_RUN_TRACK,
+    matchId: probe.matchId,
+    createdAt,
+    scope: "match-gate-only",
+    disposition: "explicit-failed-probe-waiver",
+    probeSummaryHash: probe.probeSummaryHash,
+    probePassed: false,
+    failedEntries: Object.freeze(failedEntries),
+  };
+}
+
+function writeOrVerifyProbeWaiver(
+  target: string,
+  probe: ProviderProbeResult,
+): ProbeWaiverRecord {
+  const expectedEntries = probeWaiverBody(probe, probe.createdAt).failedEntries;
+  if (existsSync(target)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(readFileSync(target, "utf8")) as unknown;
+    } catch {
+      throw new Error("probe-waiver.json 无法读取或解析");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("probe-waiver.json 结构无效");
+    }
+    const waiver = parsed as Partial<ProbeWaiverRecord>;
+    const { waiverHash, ...body } = waiver;
+    if (waiver.artifactType !== "arena-probe-waiver-v1"
+      || waiver.runTrack !== COMPLETION_RUN_TRACK
+      || waiver.matchId !== probe.matchId
+      || waiver.scope !== "match-gate-only"
+      || waiver.disposition !== "explicit-failed-probe-waiver"
+      || waiver.probeSummaryHash !== probe.probeSummaryHash
+      || waiver.probePassed !== false
+      || typeof waiver.createdAt !== "string"
+      || Number.isNaN(Date.parse(waiver.createdAt))
+      || integrityHash(waiver.failedEntries) !== integrityHash(expectedEntries)
+      || typeof waiverHash !== "string"
+      || integrityHash(body) !== waiverHash
+      || findPotentialSecrets(waiver).length > 0) {
+      throw new Error("probe-waiver.json 与当前失败 Probe 不匹配");
+    }
+    return waiver as ProbeWaiverRecord;
+  }
+  const body = probeWaiverBody(probe, new Date().toISOString());
+  const waiver = Object.freeze({ ...body, waiverHash: integrityHash(body) });
+  if (findPotentialSecrets(waiver).length > 0) {
+    throw new Error("Probe 豁免记录包含疑似凭据，已拒绝写入");
+  }
+  atomicWriteJson(target, waiver);
+  return waiver;
 }
 
 interface StabilityWaiverRecord {
@@ -844,6 +952,9 @@ function configurationSummary(options: DirectCliOptions): string {
       : [`  每 Agent 总墙钟: ${options.totalWallClockMs} ms`]),
     `  单次输出上限: ${options.maxOutputTokens} tokens`,
     `  原始交换诊断: ${options.saveRawExchanges ? "开启" : "关闭"}`,
+    ...(options.acceptAssistedProbe
+      ? ["  Probe 门禁: 显式接受失败摘要（失败事实不改写）"]
+      : []),
     ...(options.acceptAssistedStability
       ? ["  Stability 门禁: 显式接受已结算辅助日（失败事实不改写）"]
       : []),
@@ -886,6 +997,7 @@ function readMatchingProbe(
   targets: ArtifactTargets,
   fingerprint: string,
   completionAssisted: boolean,
+  allowFailed = false,
 ): ProviderProbeResult {
   if (!existsSync(targets.probe)) {
     throw new Error("完整比赛前必须在同一输出目录完成 Provider Probe");
@@ -896,7 +1008,7 @@ function readMatchingProbe(
   } catch {
     throw new Error("probe-summary.json 无法读取或解析");
   }
-  assertMatchingProviderProbe(parsed, fingerprint, completionAssisted);
+  assertMatchingProviderProbe(parsed, fingerprint, completionAssisted, { allowFailed });
   return parsed;
 }
 
@@ -923,6 +1035,7 @@ function writeMatchArtifacts(
   options: DirectCliOptions,
   output: Awaited<ReturnType<typeof runMatch>>,
   probe: ProviderProbeResult,
+  probeWaiver: ProbeWaiverRecord | undefined,
   stability: MatchStabilityEvidence,
   stabilityWaiver: MatchStabilityWaiver | undefined,
   targets: ArtifactTargets,
@@ -942,6 +1055,11 @@ function writeMatchArtifacts(
     } : {}),
     probeSummaryHash: probe.probeSummaryHash,
     probeCreatedAt: probe.createdAt,
+    probePassed: probe.passed,
+    ...(probeWaiver ? {
+      probeWaiverHash: probeWaiver.waiverHash,
+      probeWaiverDisposition: probeWaiver.disposition,
+    } : {}),
     stabilitySummaryHash: stability.stabilitySummaryHash,
     stabilityCreatedAt: stability.createdAt,
     stabilityPassed: stability.passed,
@@ -1085,7 +1203,19 @@ async function main(): Promise<void> {
   if (!options.confirmLiveRun) throw new Error("在线 Direct 对局必须显式传入 --confirm-live-run");
   const gateDrivers = createConfiguredDrivers(options);
   const fingerprint = probeFingerprint(options, gateDrivers);
-  const probe = readMatchingProbe(targets, fingerprint, options.completionAssisted);
+  const probe = readMatchingProbe(
+    targets,
+    fingerprint,
+    options.completionAssisted,
+    options.acceptAssistedProbe,
+  );
+  let probeWaiver: ProbeWaiverRecord | undefined;
+  if (options.acceptAssistedProbe) {
+    probeWaiver = writeOrVerifyProbeWaiver(targets.probeWaiver, probe);
+    process.stderr.write(
+      `已记录 Probe 失败豁免（事实仍为未通过）：${probeWaiver.waiverHash}\n`,
+    );
+  }
   let stability: MatchStabilityEvidence;
   let stabilityWaiver: MatchStabilityWaiver | undefined;
   if (options.skipAssistedStability) {
@@ -1140,7 +1270,7 @@ async function main(): Promise<void> {
   } finally {
     await recorder?.flush();
   }
-  writeMatchArtifacts(options, output, probe, stability, stabilityWaiver, targets);
+  writeMatchArtifacts(options, output, probe, probeWaiver, stability, stabilityWaiver, targets);
   buildOfflineReplay(targets);
   process.stdout.write(`Direct Arena 产物已写入：${options.outputDir}\n`);
   process.stdout.write(`离线页面：${targets.html}\n`);

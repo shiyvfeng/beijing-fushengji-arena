@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
 import { findPotentialSecrets } from "../../dist/core/secret-scan.js";
+import { integrityHash } from "../../dist/core/stable-value.js";
 
 const cliPath = new URL("../../dist/arena-direct-cli.js", import.meta.url);
 const wrapperPath = new URL("../../scripts/run-arena-direct.mjs", import.meta.url);
@@ -121,6 +122,7 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /--total-wall-clock-ms/);
   assert.match(result.stdout, /--slot-rotation-index/);
   assert.match(result.stdout, /--completion-assisted/);
+  assert.match(result.stdout, /--accept-assisted-probe/);
   assert.match(result.stdout, /--accept-assisted-stability/);
   assert.match(result.stdout, /--skip-assisted-stability/);
   assert.match(result.stdout, /--provider-time-budget-ms/);
@@ -129,9 +131,13 @@ test("Direct CLI help exposes five configuration groups and new audit controls",
   assert.match(result.stdout, /stability-summary\.json/);
 });
 
-test("assisted Stability waiver requires an explicit completion-assisted live match", t => {
+test("assisted gate waivers require an explicit completion-assisted live match", t => {
   const { path } = createEnvFixture(t, providerLines(""));
-  for (const flag of ["--accept-assisted-stability", "--skip-assisted-stability"]) {
+  for (const flag of [
+    "--accept-assisted-probe",
+    "--accept-assisted-stability",
+    "--skip-assisted-stability",
+  ]) {
     const result = runCli([
       "--env-file", path,
       "--completion-assisted",
@@ -141,6 +147,69 @@ test("assisted Stability waiver requires an explicit completion-assisted live ma
     assert.equal(result.status, 1);
     assert.match(result.stderr, /只能与 --completion-assisted --confirm-live-run 同时使用/);
   }
+});
+
+test("explicit Assisted Probe waiver preserves a failed Probe and records it in the Match report", t => {
+  const outputDir = mkdtempSync(join(tmpdir(), "arena-assisted-failed-probe-waiver-"));
+  t.after(() => rmSync(outputDir, { recursive: true, force: true }));
+  const env = fakeProviderEnv();
+  const assistedArgs = [
+    "--completion-assisted",
+    "--match-id", "fake-assisted-failed-probe-waiver",
+    "--decision-timeout-ms", "1000",
+    "--provider-time-budget-ms", "40000",
+    "--max-output-tokens", "64",
+    "--slot-rotation-index", "1",
+  ];
+  const probeRun = runCli(["--output-dir", outputDir, ...assistedArgs, "--probe-providers"], env);
+  assert.equal(probeRun.status, 0, probeRun.stderr);
+  const probePath = join(outputDir, "probe-summary.json");
+  const probe = JSON.parse(readFileSync(probePath, "utf8"));
+  probe.passed = false;
+  probe.entries[0].passed = false;
+  probe.entries[0].action = null;
+  probe.entries[0].dailyPlanSelection = null;
+  probe.entries[0].fault = {
+    category: "incomplete",
+    domain: "model",
+    countsTowardModelFailure: true,
+  };
+  const { probeSummaryHash: _oldHash, ...probeBody } = probe;
+  probe.probeSummaryHash = integrityHash(probeBody);
+  writeFileSync(probePath, `${JSON.stringify(probe, null, 2)}\n`, "utf8");
+
+  const blocked = runCli([
+    "--output-dir", outputDir,
+    ...assistedArgs,
+    "--confirm-live-run",
+    "--skip-assisted-stability",
+  ], env);
+  assert.equal(blocked.status, 1);
+  assert.match(blocked.stderr, /五组全部通过/);
+
+  const match = runCli([
+    "--output-dir", outputDir,
+    ...assistedArgs,
+    "--confirm-live-run",
+    "--accept-assisted-probe",
+    "--skip-assisted-stability",
+  ], env);
+  assert.equal(match.status, 0, match.stderr);
+  assert.match(match.stderr, /Probe 失败豁免/);
+
+  const preservedProbe = JSON.parse(readFileSync(probePath, "utf8"));
+  const waiver = JSON.parse(readFileSync(join(outputDir, "probe-waiver.json"), "utf8"));
+  const report = JSON.parse(readFileSync(join(outputDir, "run-report.json"), "utf8"));
+  assert.equal(preservedProbe.passed, false);
+  assert.equal(preservedProbe.probeSummaryHash, probe.probeSummaryHash);
+  assert.equal(waiver.artifactType, "arena-probe-waiver-v1");
+  assert.equal(waiver.disposition, "explicit-failed-probe-waiver");
+  assert.equal(waiver.probeSummaryHash, probe.probeSummaryHash);
+  assert.deepEqual(waiver.failedEntries.map(entry => entry.agentId), ["competitor-5"]);
+  assert.equal(report.probe.summaryHash, probe.probeSummaryHash);
+  assert.equal(report.probe.passed, false);
+  assert.equal(report.probe.waiver.hash, waiver.waiverHash);
+  assert.equal(report.probe.waiver.disposition, waiver.disposition);
 });
 
 test("completion-assisted config is explicit and reports its isolated budget and recovery track", t => {

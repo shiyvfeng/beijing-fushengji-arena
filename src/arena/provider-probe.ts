@@ -523,6 +523,7 @@ export function assertMatchingProviderProbe(
   value: unknown,
   configFingerprint: string,
   expectedCompletionAssisted = false,
+  options: { readonly allowFailed?: boolean } = {},
 ): asserts value is ProviderProbeResult {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("probe-summary.json 结构无效");
@@ -545,16 +546,26 @@ export function assertMatchingProviderProbe(
   const expectedRecoveryPolicy = completionAssisted
     ? COMPLETION_RECOVERY_POLICY_VERSION
     : DIRECT_RECOVERY_POLICY_VERSION;
-  if (completionAssisted !== expectedCompletionAssisted
+  const allowFailed = options.allowFailed === true;
+  const aggregatePassed = entries.length === 5 && entries.every(entry => entry?.passed === true);
+  if ((allowFailed && !expectedCompletionAssisted)
+    || completionAssisted !== expectedCompletionAssisted
     || (!completionAssisted && summary.runTrack !== undefined)
     || summary.artifactType !== expectedArtifactType
     || summary.requestCount !== 5
-    || summary.passed !== true
+    || summary.passed !== aggregatePassed
+    || (!allowFailed && summary.passed !== true)
     || entries.length !== 5
     || entries.some(entry => !entry || typeof entry !== "object"
-      || entry.passed !== true
-      || (completionAssisted ? !entry.dailyPlanSelection : entry.action === null)
-      || entry.fault !== null
+      || typeof entry.passed !== "boolean"
+      || (entry.passed
+        ? ((completionAssisted ? !entry.dailyPlanSelection : entry.action === null)
+          || entry.fault !== null)
+        : (!allowFailed
+          || !entry.fault
+          || typeof entry.fault.category !== "string"
+          || typeof entry.fault.domain !== "string"
+          || typeof entry.fault.countsTowardModelFailure !== "boolean"))
       || typeof entry.provider !== "string"
       || typeof entry.model !== "string"
       || typeof entry.providerAdapterVersion !== "string"
