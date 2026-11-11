@@ -694,7 +694,10 @@ test("背景音乐不自播且与日期播放独立", async ({ page }) => {
   runtime.assertClean();
 });
 
-test("Enrichment 成功、缺失与错误均可区分，缺失或错误只降级高光层", async ({ page }) => {
+// Each state loads a complete offline artifact. Keep separate page lifecycles
+// and timeout budgets so slower CI runners do not accumulate three loads in
+// one test and lose the final assertions to the overall test timeout.
+test("Enrichment 成功时核验 hash 并展示已揭示高光", async ({ page }) => {
   const runtime = createRuntimeObserver(page);
 
   await openReplay(page, fixtureHtmlPath);
@@ -702,7 +705,11 @@ test("Enrichment 成功、缺失与错误均可区分，缺失或错误只降级
   await goToDay(page, 2);
   expect(await page.locator(".highlight-list button").count()).toBeGreaterThan(0);
   await expect(page.locator("#arena-replay-enrichment-data")).toHaveCount(0);
+  runtime.assertClean();
+});
 
+test("Enrichment 缺失只降级高光层，事实与操作仍可用", async ({ page }) => {
+  const runtime = createRuntimeObserver(page);
   await openReplayWithoutEnrichment(page);
   await expect(page.locator(".enrichment-state--missing")).toContainText("未提供程序高光");
   await expect(page.locator(".agent-card")).toHaveCount(5);
@@ -710,7 +717,11 @@ test("Enrichment 成功、缺失与错误均可区分，缺失或错误只降级
   await goToDay(page, 2);
   await expect(panelByHeading(page, "公共事件")).toContainText("全场公开价格波动");
   await expect(page.locator("#arena-replay-enrichment-data")).toHaveCount(0);
+  runtime.assertClean();
+});
 
+test("Enrichment 错误只降级高光层，事实与操作仍可用", async ({ page }) => {
+  const runtime = createRuntimeObserver(page);
   await openReplay(page, badEnrichmentHtmlPath);
   await expect(page.locator(".enrichment-state--error")).toContainText("sourceFactHash");
   await expect(page.locator(".agent-card")).toHaveCount(5);
