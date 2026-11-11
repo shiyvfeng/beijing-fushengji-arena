@@ -1,4 +1,11 @@
 node_modules/
+.DS_Store
+showcase/web/dist/
+showcase/release/
+showcase/work/
+showcase/evidence/
+showcase/test-results/
+showcase/playwright-report/
 dist/
 playwright-report/
 test-results/

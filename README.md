@@ -1,6 +1,54 @@
 # 北京浮生记 Arena
 
-当前产品主线是 **Direct Arena**。五模型 Runner 现采用最低非关闭思考等级、`bounded-history-v1` 有界上下文、`bounded-retry-v2` 可审计恢复和 Probe → 十步 Stability → Match 三段门禁；Replay/Report 为 v4/v5。新版真实金样当前仍为 `0/3`：`run-002` 的新版 Probe 与十步 Stability 已分别达到 5/5；Stability 共 52 次请求、50 个有效动作，DeepSeek 超时与 Qwen 环境无效动作各一次且均成功恢复。正式比赛仍须单独授权。2026-08-21 的四槽 `run-001` 同样只作为不可回填的历史证据保留。
+五模型比赛 Runner 与 Showcase 展示端已整合在同一项目中。配置五组模型后，可执行比赛、观看完整回放，也可以生成可部署的静态站点。Strict Direct 与 Completion-Assisted 两条轨道保持独立，辅助动作不会被计为模型自主动作。
+
+## 从克隆到第一场比赛
+
+使用 **Node.js 24 LTS**（`.node-version` 固定为 `24.19.0`）和 npm。在包含本整合版本的检出目录中运行：
+
+```bash
+npm run setup
+```
+
+此命令按四份 lockfile 安装 Runner、兼容展示端和新版 Showcase 的依赖；不存在 `.env` 时自动从 `.env.example` 创建，不覆盖已有配置。不需要另行克隆 Showcase。
+
+编辑根目录 `.env`，填写 `ARENA_AGENT_A` 至 `ARENA_AGENT_E` 的 `PROVIDER`、`BASE_URL`、`API_KEY`、`MODEL`、`REASONING_EFFORT`。五组 `Provider + Model` 必须互不重复；可以使用同一 Provider 的不同模型。思考参数需与模型及网关实际支持的协议一致；DeepSeek 的 thinking 配置见模板。
+
+```bash
+# 脱敏检查配置，不调用模型
+npm run arena:direct -- --check-config
+
+# 一次授权依次执行 Probe → 十步 Stability → 正式比赛；会产生模型调用费用
+# 每场使用新的目录。任一门禁失败立即停止，不会自动豁免
+npm run arena:run -- --output-dir dist/runs/my-first-match --confirm-live-run
+
+# 打开完整展示页；地址由命令输出，默认 http://127.0.0.1:5174
+npm run arena:view -- --input dist/runs/my-first-match/replay.json
+```
+
+如需 Completion-Assisted 轨道，在 `arena:run` 命令中加 `--completion-assisted`。门禁失败后的诊断、显式豁免及恢复方式见 [Direct 运行说明](docs/arena-direct.md)。重新运行全流程请使用新目录；已有比赛不会被覆盖。
+
+**不配置模型也能先看演示：** `npm run arena:demo` 使用随源码保存的 Gold1 真实历史回放，不产生模型请求。它是 Completion-Assisted 样本，不能作为当前配置或 Strict Direct 的验收证明。
+
+## 交付与部署
+
+- 比赛自动生成 `replay.json`、审计报告和完整 Showcase 单文件 `replay.html`；离线 HTML 可以直接打开。
+- `arena:view` 构建首页、玩法介绍、回放页面与共享 JS/CSS/图片，然后启动本地服务。新比赛的高光从事实确定性生成；不会额外调用第六个模型。
+- 只构建网站：`npm run arena:view -- --input dist/runs/my-first-match/replay.json --build-only`。将命令输出的 **`dist/sites/match-*/public/` 整个目录**部署到静态托管服务即可；支持子路径。这里不包含密钥、Trace、Prompt、原始调用日志及未获公开分发许可的音频。
+- 当前线上形态是观看已完成比赛。若要让访客在线配置模型并发起比赛，还需要独立的服务端任务队列、鉴权与密钥管理，不能在浏览器里放 API Key。
+
+完整说明及导入来源见 [统一项目说明](docs/unified-project.md)。旧 Showcase 的私有归档、旧成品与 Git 历史保留在原仓库；本仓库包含运行所需源码、素材及已校验 Replay 样本。
+
+## 开发与验证
+
+```bash
+npm test                         # 核心、两代适配器、新流程测试；不调用真实模型
+npm run arena:browser:install     # 首次浏览器验证安装 Chromium
+npm run test:project-browser      # 新首页、回放、静态站点边界
+npm run test:showcase-browser -- --fixture  # Showcase 完整离线浏览器矩阵
+```
+
+主源码在 `src/`，当前展示端在 `showcase/web/`，统一命令在 `scripts/`。根目录 `web/` 保留旧版回放兼容测试；`arena:replay:legacy` 可重建旧版页面。以下 Direct/Legacy 资料保留原有技术背景，历史场次状态以带日期的证据为准。
 
 ![北京浮生记](image.png)
 
@@ -31,6 +79,8 @@ Arena 工具链要求 Node.js 22.18 或更高版本；Playwright 浏览器验收
 ```bash
 npm ci
 npm --prefix web ci
+npm --prefix showcase ci
+npm --prefix showcase/web ci
 npm run test:arena
 npm --prefix web run typecheck
 
@@ -68,7 +118,9 @@ Direct Runner 默认读取仓库根目录的本地 `.env`，使用 `ARENA_AGENT_
 
 Scripted 模式只保留为内部确定性回归工具，不属于产品范围、P0 验收或用户运行主流程。strict MCP 移入 P1；当前 legacy MCP 入口不迁移、不扩建，也不属于 Direct P0。
 
-### Replay Enrichment（P0.5，尚未实现）
+### Replay Enrichment（部分实现）
+
+Showcase 已包含事实驱动的程序高光、历史 Gold1 人工精选高光，以及与 Replay hash 绑定的验证机制。以下第六模型叙事方案仍属后续计划。
 
 导演高光、采访、奖项和其他娱乐化内容只能在事实 Replay 完成后由独立 Replay Enrichment 阶段生成。通用 Enrichment 使用与五个 Runner `Provider + Model` 组合均不重复的第六组模型配置，失败时不得改变事实 Replay；唯一例外是赛后采访可分别调用各参赛者原模型，但只提供该选手截至采访日已经发生的事实结果。任何叙事输出、采访内容或历史轮次结果都不得进入 Runner 或后续比赛上下文。
 

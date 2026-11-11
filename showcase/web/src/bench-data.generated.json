@@ -1,0 +1,3840 @@
+{
+  "schemaVersion": "arena-bench-summary-v1",
+  "generatedFrom": [
+    "samples/catalog.json",
+    "samples/<gold>/replay.json",
+    "archive/<gold>/runner-output/run-report.json",
+    "archive/<gold>/runner-output/probe-summary.json",
+    "archive/<gold>/runner-output/stability-summary.json",
+    "archive/<gold>/runner-output/*-waiver.json"
+  ],
+  "caveats": [
+    "Token 仅汇总 Provider 返回的 usage，不对缺失 usage 做估算。",
+    "成本字段在两场 Run Report 中均为 unavailable。",
+    "终局成绩与运行可靠性分开陈列，不用 waiver 改写游戏净资产排名。"
+  ],
+  "samples": [
+    {
+      "id": "gold-001",
+      "shortTitle": "Gold 1",
+      "title": "Completion-Assisted 金样 1",
+      "matchId": "arena-completion-assisted-v1-prompt-v2-run-001-attempt-003",
+      "seed": 2026082301,
+      "runTrack": "completion-assisted-v1",
+      "effortLabel": "Low Effort",
+      "replayTarget": "./replay.html",
+      "replayHash": "sha256:cb2a3e476ebc6761fbcb1d2e3be9f886b40ac50a5c39bd00ebb53bccffaaa225",
+      "limits": {
+        "decisionTimeoutMs": 120000,
+        "maxOutputTokensPerRequest": 4096,
+        "maxAttemptsPerDecision": 3
+      },
+      "gates": {
+        "probe": {
+          "state": "passed",
+          "disposition": null
+        },
+        "stability": {
+          "state": "failed-waived",
+          "disposition": "explicit-assisted-stability-waiver"
+        }
+      },
+      "cost": {
+        "status": "unavailable",
+        "reason": "provider-pricing-not-estimated"
+      },
+      "totals": {
+        "requestCount": 207,
+        "successfulRequests": 194,
+        "failedRequests": 13,
+        "timedOutRequests": 0,
+        "retryAttempts": 12,
+        "recoveredDecisions": 9,
+        "validActions": 291,
+        "invalidActions": 13,
+        "dnfAgents": 0,
+        "modelFailureAgents": 1,
+        "errorCategories": {
+          "incomplete": 13
+        },
+        "faultDomains": {
+          "model": 13
+        },
+        "tokens": {
+          "input": 1482290,
+          "output": 188763,
+          "total": 1671053,
+          "requestsWithoutUsage": 0
+        },
+        "latency": {
+          "samples": 207,
+          "totalMs": 3656448.67,
+          "minimumMs": 1961.764,
+          "maximumMs": 75835.555,
+          "averageMs": 17664.003
+        },
+        "reliability": {
+          "advancedDays": 195,
+          "autonomousDays": 194,
+          "assistedDays": 1,
+          "autonomousDayRate": 99.487,
+          "providerAttemptedDays": 195,
+          "firstAttemptSuccessDays": 185,
+          "firstAttemptSuccessRate": 94.872,
+          "validPlanSelections": 194,
+          "selectionResponseCount": 207,
+          "validSelectionRate": 93.72,
+          "providerRequestSuccessRate": 93.72,
+          "providerWaitMs": 3656765.202,
+          "retryCount": 12,
+          "circuitSkippedDays": 0,
+          "providerBudgetExhaustedDays": 0,
+          "assistanceReasons": {
+            "repair_retries_exhausted": 1
+          }
+        }
+      },
+      "agents": [
+        {
+          "agentId": "competitor-1",
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "providerReasoningEffort": "low",
+          "providerThinkingMode": null,
+          "rank": 3,
+          "finalNetWorth": -54260,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 40,
+          "successfulRequests": 40,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 45,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 383479,
+            "output": 4254,
+            "total": 387733,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 40,
+            "totalMs": 209915.383,
+            "minimumMs": 2073.425,
+            "maximumMs": 11757.993,
+            "averageMs": 5247.885
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 6284.128,
+              "totalTokens": 6788,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 3973.716,
+              "totalTokens": 6279,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 2855.847,
+              "totalTokens": 6515,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 4517.965,
+              "totalTokens": 6909,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 5958.183,
+              "totalTokens": 7273,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 2256.032,
+              "totalTokens": 7461,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 2441.736,
+              "totalTokens": 7785,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 5027.546,
+              "totalTokens": 8235,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 6110.978,
+              "totalTokens": 8562,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 2397.002,
+              "totalTokens": 8739,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 2651.376,
+              "totalTokens": 9079,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 7876.132,
+              "totalTokens": 9488,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 4148.784,
+              "totalTokens": 9699,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 8078.944,
+              "totalTokens": 10110,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 7287.026,
+              "totalTokens": 10449,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 4881.534,
+              "totalTokens": 10626,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 3998.863,
+              "totalTokens": 10648,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 6585.759,
+              "totalTokens": 10679,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 4798.696,
+              "totalTokens": 10613,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 2250.005,
+              "totalTokens": 10587,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 3231.336,
+              "totalTokens": 10579,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 7200.547,
+              "totalTokens": 10706,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 6344.787,
+              "totalTokens": 10709,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 2073.425,
+              "totalTokens": 10558,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 11757.993,
+              "totalTokens": 13449,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 4177.485,
+              "totalTokens": 10118,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 2480.214,
+              "totalTokens": 10122,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 2981.95,
+              "totalTokens": 10133,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 2263.193,
+              "totalTokens": 10111,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 8727.454,
+              "totalTokens": 10381,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 6697.288,
+              "totalTokens": 10289,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 5021.069,
+              "totalTokens": 10246,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 6974.796,
+              "totalTokens": 10269,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 7797.215,
+              "totalTokens": 10278,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 7477.01,
+              "totalTokens": 12545,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 2915.502,
+              "totalTokens": 9693,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 5474.541,
+              "totalTokens": 10046,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 5134.017,
+              "totalTokens": 10270,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 9647.308,
+              "totalTokens": 10390,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 7158.001,
+              "totalTokens": 10317,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-2",
+          "provider": "anthropic",
+          "model": "claude-opus-5",
+          "providerReasoningEffort": "low",
+          "providerThinkingMode": null,
+          "rank": 5,
+          "finalNetWorth": -123706,
+          "tier": "game_failure",
+          "status": "dead",
+          "exitDay": 36,
+          "requestCount": 36,
+          "successfulRequests": 36,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 49,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 181492,
+            "output": 1069,
+            "total": 182561,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 36,
+            "totalMs": 122109.057,
+            "minimumMs": 1961.764,
+            "maximumMs": 6636.915,
+            "averageMs": 3391.918
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 3855.36,
+              "totalTokens": 2045,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 5965.067,
+              "totalTokens": 5040,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 6466.567,
+              "totalTokens": 4644,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 5933.206,
+              "totalTokens": 4788,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 4937.515,
+              "totalTokens": 5962,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 6465.516,
+              "totalTokens": 6605,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 6636.915,
+              "totalTokens": 6702,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 2381.411,
+              "totalTokens": 7408,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 5243.415,
+              "totalTokens": 4817,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 3370.76,
+              "totalTokens": 5098,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 3410.847,
+              "totalTokens": 4087,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 2273.988,
+              "totalTokens": 4038,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 2111.945,
+              "totalTokens": 4234,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 1961.764,
+              "totalTokens": 4207,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 2008.086,
+              "totalTokens": 4403,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 2283.603,
+              "totalTokens": 4381,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 2079.209,
+              "totalTokens": 4572,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 2341.207,
+              "totalTokens": 4771,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 2369.862,
+              "totalTokens": 4753,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 4022.792,
+              "totalTokens": 4951,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 2251.405,
+              "totalTokens": 4950,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 3978.445,
+              "totalTokens": 5177,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 2342.88,
+              "totalTokens": 5175,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 2423.851,
+              "totalTokens": 5372,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 2110.56,
+              "totalTokens": 5581,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 5616.972,
+              "totalTokens": 6871,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 2416.428,
+              "totalTokens": 5192,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 2773.721,
+              "totalTokens": 5190,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 2497.949,
+              "totalTokens": 5191,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 2017.458,
+              "totalTokens": 5182,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 2299.959,
+              "totalTokens": 5193,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 2319.536,
+              "totalTokens": 5193,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 2801.505,
+              "totalTokens": 5175,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 2500.481,
+              "totalTokens": 5184,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 3151.118,
+              "totalTokens": 5184,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 4487.754,
+              "totalTokens": 5245,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-3",
+          "provider": "deepseek",
+          "model": "deepseek-v4-pro",
+          "providerReasoningEffort": "low",
+          "providerThinkingMode": "enabled",
+          "rank": 1,
+          "finalNetWorth": 97052,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 52,
+          "successfulRequests": 39,
+          "failedRequests": 13,
+          "timedOutRequests": 0,
+          "retryAttempts": 12,
+          "recoveredDecisions": 9,
+          "validActions": 79,
+          "invalidActions": 13,
+          "dnf": false,
+          "errorCategories": {
+            "incomplete": 13
+          },
+          "tokens": {
+            "input": 366900,
+            "output": 141192,
+            "total": 508092,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 52,
+            "totalMs": 2256623.412,
+            "minimumMs": 4177.713,
+            "maximumMs": 75835.555,
+            "averageMs": 43396.604
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 27292.475,
+              "totalTokens": 4622,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 40138.514,
+              "totalTokens": 8973,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 31662.372,
+              "totalTokens": 7731,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 24874.213,
+              "totalTokens": 8617,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "failed",
+              "latencyMs": 50763.368,
+              "totalTokens": 11180,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 57597.502,
+              "totalTokens": 11094,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 53572.701,
+              "totalTokens": 9223,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 24458.04,
+              "totalTokens": 5806,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 5259.885,
+              "totalTokens": 4745,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 23339.834,
+              "totalTokens": 5956,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 15758.904,
+              "totalTokens": 5676,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 20415.723,
+              "totalTokens": 6207,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 4177.713,
+              "totalTokens": 5133,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 30273.857,
+              "totalTokens": 7083,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 25911.841,
+              "totalTokens": 6816,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 40455.985,
+              "totalTokens": 9670,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "failed",
+              "latencyMs": 57160.696,
+              "totalTokens": 10673,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 52243.171,
+              "totalTokens": 9671,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 50239.199,
+              "totalTokens": 11649,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 17590.761,
+              "totalTokens": 10328,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 53944.534,
+              "totalTokens": 12553,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 26385.787,
+              "totalTokens": 10504,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 21982.288,
+              "totalTokens": 10009,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 29078.122,
+              "totalTokens": 10164,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 39463.736,
+              "totalTokens": 11003,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "failed",
+              "latencyMs": 70367.828,
+              "totalTokens": 10531,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 41556.819,
+              "totalTokens": 8670,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 34381.648,
+              "totalTokens": 10569,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "failed",
+              "latencyMs": 63248.854,
+              "totalTokens": 11442,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 37823.03,
+              "totalTokens": 9427,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 55969.927,
+              "totalTokens": 9001,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "failed",
+              "latencyMs": 68132.323,
+              "totalTokens": 11087,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "failed",
+              "latencyMs": 63755.572,
+              "totalTokens": 11091,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 75835.555,
+              "totalTokens": 10769,
+              "usageMissing": false,
+              "attemptIndex": 2
+            },
+            {
+              "requestIndex": 35,
+              "status": "failed",
+              "latencyMs": 69416.146,
+              "totalTokens": 10383,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "failed",
+              "latencyMs": 64404.709,
+              "totalTokens": 10387,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 37,
+              "status": "failed",
+              "latencyMs": 61336.44,
+              "totalTokens": 10387,
+              "usageMissing": false,
+              "attemptIndex": 2
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 33169.764,
+              "totalTokens": 10642,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 56139.677,
+              "totalTokens": 9673,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "failed",
+              "latencyMs": 67321.162,
+              "totalTokens": 12776,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 41,
+              "status": "succeeded",
+              "latencyMs": 30193.404,
+              "totalTokens": 10659,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 42,
+              "status": "succeeded",
+              "latencyMs": 38874.155,
+              "totalTokens": 10028,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 43,
+              "status": "succeeded",
+              "latencyMs": 48973.471,
+              "totalTokens": 11556,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 44,
+              "status": "failed",
+              "latencyMs": 63714.922,
+              "totalTokens": 12182,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 45,
+              "status": "succeeded",
+              "latencyMs": 45853.324,
+              "totalTokens": 11114,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 46,
+              "status": "failed",
+              "latencyMs": 61938.693,
+              "totalTokens": 12208,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 47,
+              "status": "succeeded",
+              "latencyMs": 25571.159,
+              "totalTokens": 9592,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 48,
+              "status": "succeeded",
+              "latencyMs": 50248.312,
+              "totalTokens": 11194,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 49,
+              "status": "succeeded",
+              "latencyMs": 48449.602,
+              "totalTokens": 11350,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 50,
+              "status": "failed",
+              "latencyMs": 60869.127,
+              "totalTokens": 12738,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 51,
+              "status": "succeeded",
+              "latencyMs": 47370.448,
+              "totalTokens": 11807,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 52,
+              "status": "succeeded",
+              "latencyMs": 47666.12,
+              "totalTokens": 11743,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-4",
+          "provider": "qwen",
+          "model": "qwen3.8-max",
+          "providerReasoningEffort": "low",
+          "providerThinkingMode": "default",
+          "rank": 2,
+          "finalNetWorth": 34085,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 40,
+          "successfulRequests": 40,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 78,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 340564,
+            "output": 38906,
+            "total": 379470,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 40,
+            "totalMs": 847821.086,
+            "minimumMs": 11256.026,
+            "maximumMs": 33685.121,
+            "averageMs": 21195.527
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 11753.169,
+              "totalTokens": 2919,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 15814.775,
+              "totalTokens": 6645,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 15771.2,
+              "totalTokens": 7000,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 33685.121,
+              "totalTokens": 8506,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 30120.635,
+              "totalTokens": 8636,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 30371.936,
+              "totalTokens": 9062,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 25915.888,
+              "totalTokens": 9546,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 22494.289,
+              "totalTokens": 9693,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 24881.462,
+              "totalTokens": 10378,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 31543.737,
+              "totalTokens": 11043,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 19973.59,
+              "totalTokens": 10772,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 21843.538,
+              "totalTokens": 11079,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 22251.341,
+              "totalTokens": 11006,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 29210.564,
+              "totalTokens": 11639,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 16232.634,
+              "totalTokens": 9496,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 29181.626,
+              "totalTokens": 11264,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 23185.908,
+              "totalTokens": 11306,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 24840.958,
+              "totalTokens": 11147,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 19015.044,
+              "totalTokens": 10434,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 12153.366,
+              "totalTokens": 10196,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 15947.921,
+              "totalTokens": 8366,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 20768.397,
+              "totalTokens": 10651,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 16901.817,
+              "totalTokens": 8623,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 18544.9,
+              "totalTokens": 9885,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 22027.07,
+              "totalTokens": 9078,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 19283.301,
+              "totalTokens": 8768,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 16672.587,
+              "totalTokens": 9282,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 21484.239,
+              "totalTokens": 10403,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 24527.878,
+              "totalTokens": 10173,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 15325.142,
+              "totalTokens": 10026,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 15788.432,
+              "totalTokens": 10142,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 25168.572,
+              "totalTokens": 10306,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 28299.505,
+              "totalTokens": 10066,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 21483.92,
+              "totalTokens": 9923,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 23554.698,
+              "totalTokens": 9946,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 17118.77,
+              "totalTokens": 6157,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 11813.726,
+              "totalTokens": 8416,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 21880.234,
+              "totalTokens": 9656,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 11256.026,
+              "totalTokens": 8398,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 19733.17,
+              "totalTokens": 9438,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-5",
+          "provider": "kimi",
+          "model": "kimi-k3",
+          "providerReasoningEffort": "low",
+          "providerThinkingMode": "default",
+          "rank": 4,
+          "finalNetWorth": -123319,
+          "tier": "game_failure",
+          "status": "dead",
+          "exitDay": 39,
+          "requestCount": 39,
+          "successfulRequests": 39,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 40,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 209855,
+            "output": 3342,
+            "total": 213197,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 39,
+            "totalMs": 219979.732,
+            "minimumMs": 2565.602,
+            "maximumMs": 14748.377,
+            "averageMs": 5640.506
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 7350.311,
+              "totalTokens": 2397,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 2900.003,
+              "totalTokens": 1866,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 2994.309,
+              "totalTokens": 2199,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 3792.447,
+              "totalTokens": 2531,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 4203.785,
+              "totalTokens": 2867,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 3932.998,
+              "totalTokens": 3194,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 4568.146,
+              "totalTokens": 3509,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 3435.488,
+              "totalTokens": 3848,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 3880.024,
+              "totalTokens": 4150,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 9174.848,
+              "totalTokens": 4505,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 5938.418,
+              "totalTokens": 4816,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 2985.885,
+              "totalTokens": 5115,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 4935.691,
+              "totalTokens": 5486,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 3760.335,
+              "totalTokens": 5769,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 4867.388,
+              "totalTokens": 6152,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 8417.284,
+              "totalTokens": 6504,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 6315.029,
+              "totalTokens": 6474,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 11879.459,
+              "totalTokens": 6396,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 4729.033,
+              "totalTokens": 6398,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 5694.395,
+              "totalTokens": 6477,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 9240.911,
+              "totalTokens": 6492,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 3644.215,
+              "totalTokens": 6390,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 6582.142,
+              "totalTokens": 6508,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 6103.031,
+              "totalTokens": 6430,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 2994.279,
+              "totalTokens": 6416,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 4428.562,
+              "totalTokens": 6393,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 3411.11,
+              "totalTokens": 6420,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 2574.446,
+              "totalTokens": 6414,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 3861.356,
+              "totalTokens": 6421,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 2565.602,
+              "totalTokens": 6388,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 6605.881,
+              "totalTokens": 6440,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 5039.864,
+              "totalTokens": 6417,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 5621.514,
+              "totalTokens": 6432,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 14748.377,
+              "totalTokens": 6501,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 8380.65,
+              "totalTokens": 6561,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 6051.875,
+              "totalTokens": 6437,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 10935.97,
+              "totalTokens": 6587,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 8312.653,
+              "totalTokens": 6511,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 3122.018,
+              "totalTokens": 6386,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "gold-002",
+      "shortTitle": "Gold 2",
+      "title": "Completion-Assisted High-Effort 金样 2",
+      "matchId": "arena-completion-assisted-v1-high-effort-run-002-attempt-004",
+      "seed": 2026082302,
+      "runTrack": "completion-assisted-v1",
+      "effortLabel": "High Effort",
+      "replayTarget": "./gold-002.html",
+      "replayHash": "sha256:8ac483dc53a2ecd4258ef32cf277b9690d995b73982cb06be144464d3e7c393f",
+      "limits": {
+        "decisionTimeoutMs": 180000,
+        "maxOutputTokensPerRequest": 4096,
+        "maxAttemptsPerDecision": 3
+      },
+      "gates": {
+        "probe": {
+          "state": "failed-waived",
+          "disposition": "explicit-failed-probe-waiver"
+        },
+        "stability": {
+          "state": "skipped-waived",
+          "disposition": "explicit-skipped-stability-waiver"
+        }
+      },
+      "cost": {
+        "status": "unavailable",
+        "reason": "provider-pricing-not-estimated"
+      },
+      "totals": {
+        "requestCount": 203,
+        "successfulRequests": 192,
+        "failedRequests": 11,
+        "timedOutRequests": 6,
+        "retryAttempts": 11,
+        "recoveredDecisions": 9,
+        "validActions": 250,
+        "invalidActions": 5,
+        "dnfAgents": 0,
+        "modelFailureAgents": 1,
+        "errorCategories": {
+          "incomplete": 5,
+          "timeout": 6
+        },
+        "faultDomains": {
+          "model": 5,
+          "undetermined": 6
+        },
+        "tokens": {
+          "input": 1329672,
+          "output": 268539,
+          "total": 1598211,
+          "requestsWithoutUsage": 6
+        },
+        "latency": {
+          "samples": 203,
+          "totalMs": 7606798.624,
+          "minimumMs": 1981.712,
+          "maximumMs": 180009.426,
+          "averageMs": 37471.914
+        },
+        "reliability": {
+          "advancedDays": 192,
+          "autonomousDays": 192,
+          "assistedDays": 0,
+          "autonomousDayRate": 100,
+          "providerAttemptedDays": 192,
+          "firstAttemptSuccessDays": 183,
+          "firstAttemptSuccessRate": 95.313,
+          "validPlanSelections": 192,
+          "selectionResponseCount": 197,
+          "validSelectionRate": 97.462,
+          "providerRequestSuccessRate": 94.581,
+          "providerWaitMs": 7727123.426,
+          "retryCount": 11,
+          "circuitSkippedDays": 0,
+          "providerBudgetExhaustedDays": 0,
+          "assistanceReasons": {}
+        }
+      },
+      "agents": [
+        {
+          "agentId": "competitor-5",
+          "provider": "kimi",
+          "model": "kimi-k3",
+          "providerReasoningEffort": "high",
+          "providerThinkingMode": "default",
+          "rank": 1,
+          "finalNetWorth": 43962,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 40,
+          "successfulRequests": 40,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 53,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 223256,
+            "output": 20239,
+            "total": 243495,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 40,
+            "totalMs": 778018.744,
+            "minimumMs": 2708.045,
+            "maximumMs": 64808.815,
+            "averageMs": 19450.469
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 19025.789,
+              "totalTokens": 2733,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 42796.532,
+              "totalTokens": 6623,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 50930.22,
+              "totalTokens": 6179,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 20245.903,
+              "totalTokens": 5282,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 9740.399,
+              "totalTokens": 6400,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 5444.677,
+              "totalTokens": 3859,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 5383.253,
+              "totalTokens": 4137,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 4420.144,
+              "totalTokens": 4432,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 3832.791,
+              "totalTokens": 4783,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 24388.46,
+              "totalTokens": 5593,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 2708.045,
+              "totalTokens": 5012,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 17551.591,
+              "totalTokens": 5695,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 10229.525,
+              "totalTokens": 5425,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 12451.063,
+              "totalTokens": 5715,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 3516.873,
+              "totalTokens": 5673,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 4923.76,
+              "totalTokens": 5734,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 2950.586,
+              "totalTokens": 5893,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 32190.494,
+              "totalTokens": 6746,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 39362.113,
+              "totalTokens": 7135,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 7810.003,
+              "totalTokens": 6391,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 12234.261,
+              "totalTokens": 6593,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 15001.668,
+              "totalTokens": 6646,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 38836.786,
+              "totalTokens": 7323,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 23723.726,
+              "totalTokens": 6787,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 7784.891,
+              "totalTokens": 6492,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 4985.689,
+              "totalTokens": 6388,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 13629.558,
+              "totalTokens": 6410,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 64808.815,
+              "totalTokens": 8185,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 34192.383,
+              "totalTokens": 9018,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 44268.34,
+              "totalTokens": 8724,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 3898.877,
+              "totalTokens": 5512,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 38040.578,
+              "totalTokens": 6449,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 4922.931,
+              "totalTokens": 5505,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 22530.012,
+              "totalTokens": 6101,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 4179.468,
+              "totalTokens": 5471,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 5267.826,
+              "totalTokens": 5514,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 29629.833,
+              "totalTokens": 6063,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 17183.177,
+              "totalTokens": 5754,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 30904.62,
+              "totalTokens": 6331,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 42093.084,
+              "totalTokens": 8789,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-1",
+          "provider": "openai",
+          "model": "gpt-5.6-sol",
+          "providerReasoningEffort": "high",
+          "providerThinkingMode": null,
+          "rank": 4,
+          "finalNetWorth": -104670,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 40,
+          "successfulRequests": 40,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 45,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 385590,
+            "output": 15183,
+            "total": 400773,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 40,
+            "totalMs": 360589.701,
+            "minimumMs": 1981.712,
+            "maximumMs": 35774.402,
+            "averageMs": 9014.743
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 10779.8,
+              "totalTokens": 7187,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 6336.578,
+              "totalTokens": 6458,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 8962.479,
+              "totalTokens": 6914,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 10144.242,
+              "totalTokens": 7307,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 7068.276,
+              "totalTokens": 7456,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 8154.629,
+              "totalTokens": 7848,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 8777.837,
+              "totalTokens": 9884,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 11579.477,
+              "totalTokens": 9396,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 10230.372,
+              "totalTokens": 9280,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 35774.402,
+              "totalTokens": 11025,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 2604.545,
+              "totalTokens": 9485,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 11977.709,
+              "totalTokens": 10234,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 10298.533,
+              "totalTokens": 10047,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 10384.379,
+              "totalTokens": 10156,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 11697.269,
+              "totalTokens": 10201,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 6082.721,
+              "totalTokens": 9866,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 11899.388,
+              "totalTokens": 10238,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 11060.054,
+              "totalTokens": 10206,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 12152.659,
+              "totalTokens": 10453,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 10977.408,
+              "totalTokens": 10670,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 12341.137,
+              "totalTokens": 10647,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 6492.796,
+              "totalTokens": 10558,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 5095.449,
+              "totalTokens": 10765,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 8428.496,
+              "totalTokens": 10904,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 6314.756,
+              "totalTokens": 10831,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 8047.952,
+              "totalTokens": 10941,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 9304.933,
+              "totalTokens": 10988,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 6683.99,
+              "totalTokens": 10768,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 9815.239,
+              "totalTokens": 11035,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 8024.052,
+              "totalTokens": 10966,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 4842.039,
+              "totalTokens": 10695,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 5409.491,
+              "totalTokens": 10745,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 1981.712,
+              "totalTokens": 10576,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 8990.184,
+              "totalTokens": 10967,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 7329.074,
+              "totalTokens": 10873,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 8263.978,
+              "totalTokens": 10932,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 8500.792,
+              "totalTokens": 10951,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 5738.362,
+              "totalTokens": 10710,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 6431.43,
+              "totalTokens": 10820,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 5611.082,
+              "totalTokens": 10790,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-2",
+          "provider": "anthropic",
+          "model": "claude-opus-5",
+          "providerReasoningEffort": "high",
+          "providerThinkingMode": null,
+          "rank": 3,
+          "finalNetWorth": -90355,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 40,
+          "successfulRequests": 40,
+          "failedRequests": 0,
+          "timedOutRequests": 0,
+          "retryAttempts": 0,
+          "recoveredDecisions": 0,
+          "validActions": 52,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {},
+          "tokens": {
+            "input": 197046,
+            "output": 3595,
+            "total": 200641,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 40,
+            "totalMs": 376264.454,
+            "minimumMs": 3564.048,
+            "maximumMs": 131116.517,
+            "averageMs": 9406.611
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 4648.371,
+              "totalTokens": 2081,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 11279.209,
+              "totalTokens": 5168,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 11053.132,
+              "totalTokens": 4730,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 7460.491,
+              "totalTokens": 5297,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 9494.931,
+              "totalTokens": 3829,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 5097.423,
+              "totalTokens": 3328,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 5641.129,
+              "totalTokens": 3625,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 5448.147,
+              "totalTokens": 3906,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 13075.306,
+              "totalTokens": 5458,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 6279.254,
+              "totalTokens": 4560,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 19482.077,
+              "totalTokens": 5823,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 7073.468,
+              "totalTokens": 7467,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 6217.229,
+              "totalTokens": 5273,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 5556.66,
+              "totalTokens": 4780,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 10792.98,
+              "totalTokens": 6351,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 5101.335,
+              "totalTokens": 4550,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 5883.327,
+              "totalTokens": 4555,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 4293.747,
+              "totalTokens": 4522,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 4789.406,
+              "totalTokens": 4528,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 5291.036,
+              "totalTokens": 4500,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 5698.925,
+              "totalTokens": 4688,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 4758.729,
+              "totalTokens": 4884,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 6402.976,
+              "totalTokens": 4849,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 5652.295,
+              "totalTokens": 5040,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 5301.457,
+              "totalTokens": 5008,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 5745.464,
+              "totalTokens": 5231,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 5985.622,
+              "totalTokens": 5231,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 5201.569,
+              "totalTokens": 5179,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 6477.608,
+              "totalTokens": 5384,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 131116.517,
+              "totalTokens": 5538,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 4167.738,
+              "totalTokens": 5589,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 4406.341,
+              "totalTokens": 5536,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "succeeded",
+              "latencyMs": 3961.718,
+              "totalTokens": 5515,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 3771.626,
+              "totalTokens": 5520,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 4177.313,
+              "totalTokens": 5524,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 3936.905,
+              "totalTokens": 5521,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 3806.898,
+              "totalTokens": 5520,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 4034.322,
+              "totalTokens": 5525,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 4137.725,
+              "totalTokens": 5506,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 3564.048,
+              "totalTokens": 5522,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-3",
+          "provider": "deepseek",
+          "model": "deepseek-v4-pro",
+          "providerReasoningEffort": "high",
+          "providerThinkingMode": "enabled",
+          "rank": 2,
+          "finalNetWorth": -58286,
+          "tier": "completed",
+          "status": "completed",
+          "exitDay": 40,
+          "requestCount": 45,
+          "successfulRequests": 40,
+          "failedRequests": 5,
+          "timedOutRequests": 0,
+          "retryAttempts": 5,
+          "recoveredDecisions": 4,
+          "validActions": 48,
+          "invalidActions": 5,
+          "dnf": false,
+          "errorCategories": {
+            "incomplete": 5
+          },
+          "tokens": {
+            "input": 245060,
+            "output": 89779,
+            "total": 334839,
+            "requestsWithoutUsage": 0
+          },
+          "latency": {
+            "samples": 45,
+            "totalMs": 1756492.036,
+            "minimumMs": 6734.808,
+            "maximumMs": 81422.351,
+            "averageMs": 39033.156
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 56010.86,
+              "totalTokens": 5315,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "failed",
+              "latencyMs": 79457.187,
+              "totalTokens": 9922,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 69391.71,
+              "totalTokens": 9681,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 8366.858,
+              "totalTokens": 2779,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "failed",
+              "latencyMs": 73980.839,
+              "totalTokens": 7799,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "failed",
+              "latencyMs": 77128.035,
+              "totalTokens": 7803,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 54243.182,
+              "totalTokens": 6474,
+              "usageMissing": false,
+              "attemptIndex": 2
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 10041.258,
+              "totalTokens": 3699,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 6734.808,
+              "totalTokens": 3800,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 26351.661,
+              "totalTokens": 5215,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 21699.455,
+              "totalTokens": 5262,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 38177.583,
+              "totalTokens": 6566,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 44556.763,
+              "totalTokens": 7119,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 18307.645,
+              "totalTokens": 6158,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 46208.423,
+              "totalTokens": 7965,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 54905.546,
+              "totalTokens": 8876,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 42777.609,
+              "totalTokens": 8030,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "succeeded",
+              "latencyMs": 39532.655,
+              "totalTokens": 9624,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 32299.578,
+              "totalTokens": 7339,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 50783.241,
+              "totalTokens": 8629,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 16621.668,
+              "totalTokens": 6853,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 62361.455,
+              "totalTokens": 9331,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "failed",
+              "latencyMs": 71211.375,
+              "totalTokens": 10086,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 11328.119,
+              "totalTokens": 6554,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 30896.305,
+              "totalTokens": 7515,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 15517.822,
+              "totalTokens": 6808,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 24520.576,
+              "totalTokens": 7193,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "succeeded",
+              "latencyMs": 52198.656,
+              "totalTokens": 10584,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 20674.653,
+              "totalTokens": 6536,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 30,
+              "status": "succeeded",
+              "latencyMs": 37113.984,
+              "totalTokens": 7224,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 36084.705,
+              "totalTokens": 7480,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 19253.132,
+              "totalTokens": 7039,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "failed",
+              "latencyMs": 81422.351,
+              "totalTokens": 10146,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "succeeded",
+              "latencyMs": 24214.617,
+              "totalTokens": 7230,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 23620.68,
+              "totalTokens": 7080,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 25062.961,
+              "totalTokens": 7283,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "succeeded",
+              "latencyMs": 76707.628,
+              "totalTokens": 9638,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 28623.905,
+              "totalTokens": 7391,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 39,
+              "status": "succeeded",
+              "latencyMs": 13788.19,
+              "totalTokens": 6659,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 40,
+              "status": "succeeded",
+              "latencyMs": 27535.426,
+              "totalTokens": 7448,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 41,
+              "status": "succeeded",
+              "latencyMs": 69862.436,
+              "totalTokens": 9399,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 42,
+              "status": "succeeded",
+              "latencyMs": 18090.837,
+              "totalTokens": 6865,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 43,
+              "status": "succeeded",
+              "latencyMs": 34617.493,
+              "totalTokens": 7721,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 44,
+              "status": "succeeded",
+              "latencyMs": 40443.141,
+              "totalTokens": 8431,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 45,
+              "status": "succeeded",
+              "latencyMs": 43765.025,
+              "totalTokens": 8290,
+              "usageMissing": false,
+              "attemptIndex": 0
+            }
+          ]
+        },
+        {
+          "agentId": "competitor-4",
+          "provider": "qwen",
+          "model": "qwen3.8-max",
+          "providerReasoningEffort": "xhigh",
+          "providerThinkingMode": "default",
+          "rank": 5,
+          "finalNetWorth": -114988,
+          "tier": "game_failure",
+          "status": "dead",
+          "exitDay": 32,
+          "requestCount": 38,
+          "successfulRequests": 32,
+          "failedRequests": 6,
+          "timedOutRequests": 6,
+          "retryAttempts": 6,
+          "recoveredDecisions": 5,
+          "validActions": 52,
+          "invalidActions": 0,
+          "dnf": false,
+          "errorCategories": {
+            "timeout": 6
+          },
+          "tokens": {
+            "input": 278720,
+            "output": 139743,
+            "total": 418463,
+            "requestsWithoutUsage": 6
+          },
+          "latency": {
+            "samples": 38,
+            "totalMs": 4335433.689,
+            "minimumMs": 18864.451,
+            "maximumMs": 180009.426,
+            "averageMs": 114090.36
+          },
+          "calls": [
+            {
+              "requestIndex": 1,
+              "status": "succeeded",
+              "latencyMs": 18864.451,
+              "totalTokens": 3139,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 2,
+              "status": "succeeded",
+              "latencyMs": 99091.945,
+              "totalTokens": 10347,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 3,
+              "status": "succeeded",
+              "latencyMs": 68817.654,
+              "totalTokens": 9074,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 4,
+              "status": "succeeded",
+              "latencyMs": 63600.382,
+              "totalTokens": 7385,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 5,
+              "status": "succeeded",
+              "latencyMs": 73732.356,
+              "totalTokens": 8921,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 6,
+              "status": "succeeded",
+              "latencyMs": 66078.632,
+              "totalTokens": 7132,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 7,
+              "status": "succeeded",
+              "latencyMs": 95789.523,
+              "totalTokens": 12024,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 8,
+              "status": "succeeded",
+              "latencyMs": 119677.916,
+              "totalTokens": 13795,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 9,
+              "status": "succeeded",
+              "latencyMs": 127984.251,
+              "totalTokens": 14370,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 10,
+              "status": "succeeded",
+              "latencyMs": 141175.167,
+              "totalTokens": 15468,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 11,
+              "status": "succeeded",
+              "latencyMs": 123538.382,
+              "totalTokens": 14906,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 12,
+              "status": "succeeded",
+              "latencyMs": 78355.387,
+              "totalTokens": 12826,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 13,
+              "status": "succeeded",
+              "latencyMs": 137882.164,
+              "totalTokens": 15813,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 14,
+              "status": "succeeded",
+              "latencyMs": 58757.279,
+              "totalTokens": 11572,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 15,
+              "status": "succeeded",
+              "latencyMs": 156940.381,
+              "totalTokens": 16413,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 16,
+              "status": "succeeded",
+              "latencyMs": 104644.738,
+              "totalTokens": 14184,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 17,
+              "status": "succeeded",
+              "latencyMs": 104832.218,
+              "totalTokens": 14026,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 18,
+              "status": "failed",
+              "latencyMs": 180001.452,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 19,
+              "status": "succeeded",
+              "latencyMs": 58661.304,
+              "totalTokens": 12114,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 20,
+              "status": "succeeded",
+              "latencyMs": 76714.453,
+              "totalTokens": 13051,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 21,
+              "status": "succeeded",
+              "latencyMs": 119094.656,
+              "totalTokens": 14933,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 22,
+              "status": "succeeded",
+              "latencyMs": 141091.512,
+              "totalTokens": 15777,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 23,
+              "status": "succeeded",
+              "latencyMs": 121721.606,
+              "totalTokens": 14852,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 24,
+              "status": "succeeded",
+              "latencyMs": 73273.722,
+              "totalTokens": 12796,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 25,
+              "status": "succeeded",
+              "latencyMs": 76125.164,
+              "totalTokens": 13097,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 26,
+              "status": "succeeded",
+              "latencyMs": 144907.24,
+              "totalTokens": 16076,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 27,
+              "status": "succeeded",
+              "latencyMs": 97394.694,
+              "totalTokens": 14376,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 28,
+              "status": "failed",
+              "latencyMs": 180009.426,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 29,
+              "status": "succeeded",
+              "latencyMs": 52294.266,
+              "totalTokens": 12084,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 30,
+              "status": "failed",
+              "latencyMs": 180007.962,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 31,
+              "status": "succeeded",
+              "latencyMs": 133696.931,
+              "totalTokens": 16145,
+              "usageMissing": false,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 32,
+              "status": "succeeded",
+              "latencyMs": 170123.809,
+              "totalTokens": 17493,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 33,
+              "status": "failed",
+              "latencyMs": 180005.155,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 34,
+              "status": "failed",
+              "latencyMs": 179999.836,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 1
+            },
+            {
+              "requestIndex": 35,
+              "status": "succeeded",
+              "latencyMs": 119244.877,
+              "totalTokens": 14952,
+              "usageMissing": false,
+              "attemptIndex": 2
+            },
+            {
+              "requestIndex": 36,
+              "status": "succeeded",
+              "latencyMs": 175327.573,
+              "totalTokens": 17309,
+              "usageMissing": false,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 37,
+              "status": "failed",
+              "latencyMs": 180004.641,
+              "totalTokens": null,
+              "usageMissing": true,
+              "attemptIndex": 0
+            },
+            {
+              "requestIndex": 38,
+              "status": "succeeded",
+              "latencyMs": 55970.584,
+              "totalTokens": 12013,
+              "usageMissing": false,
+              "attemptIndex": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

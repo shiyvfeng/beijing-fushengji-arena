@@ -1088,7 +1088,7 @@ function buildOfflineReplay(targets: ArtifactTargets): void {
     ...CONFIG_LETTERS.map(letter => `ARENA_AGENT_${letter}_API_KEY`),
   ]) delete buildEnvironment[credentialName];
   const result = spawnSync(process.execPath, [
-    join(REPOSITORY_ROOT, "scripts", "build-arena-replay.mjs"),
+    join(REPOSITORY_ROOT, "showcase", "scripts", "build-arena-replay.mjs"),
     "--input",
     targets.replay,
     "--output",

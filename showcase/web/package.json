@@ -1,0 +1,29 @@
+{
+  "name": "web",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run build:site",
+    "build:site": "npm run typecheck && vite build",
+    "build:home": "npm run typecheck && ARENA_BUILD_HOME_ONLY=1 vite build",
+    "build:bench": "npm run typecheck && ARENA_BUILD_BENCH_ONLY=1 vite build",
+    "replay:enrich": "node scripts/generate-enrichment.mjs",
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "5.0.4",
+    "react": "19.2.0",
+    "react-dom": "19.2.0",
+    "vite": "6.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.3",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "typescript": "^5.9.3"
+  }
+}

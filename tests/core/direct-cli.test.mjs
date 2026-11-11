@@ -17,7 +17,7 @@ import { integrityHash } from "../../dist/core/stable-value.js";
 
 const cliPath = new URL("../../dist/arena-direct-cli.js", import.meta.url);
 const wrapperPath = new URL("../../scripts/run-arena-direct.mjs", import.meta.url);
-const replayBuilderPath = new URL("../../scripts/build-arena-replay.mjs", import.meta.url);
+const replayBuilderPath = new URL("../../showcase/scripts/build-arena-replay.mjs", import.meta.url);
 const fetchShimPath = new URL("./fixtures/direct-fetch-shim.mjs", import.meta.url);
 const TEST_SECRET = "sk-cli-multi-secret-123456789";
 const CONFIG_LETTERS = ["A", "B", "C", "D", "E"];

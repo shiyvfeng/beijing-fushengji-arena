@@ -1,5 +1,7 @@
 # Direct Arena 运行说明
 
+统一工程入口（2026-11-11）：先在根目录执行 `npm run setup`，填写 `.env` 后可用 `npm run arena:run -- --output-dir dist/runs/my-match --confirm-live-run` 顺序执行全部门禁与比赛，再用 `npm run arena:view -- --input dist/runs/my-match/replay.json` 查看完整展示。新用户优先阅读 [README 快速开始](../README.md)，下文保留逐阶段操作和 Strict Direct 技术契约。默认单文件导出已使用 `showcase/` 展示端。
+
 > 当前状态（2026-08-22）：五模型 Runner 已切换到最低非关闭思考、`bounded-history-v1`、`bounded-retry-v2` 和 Probe → 十步 Stability → Match 门禁；Replay/Report 为 v4/v5。`run-002` 已完成正式比赛、事实产物验收和 Node 24 双视口浏览器验收，计为第一场新版真实金样，当前为 `1/3`。
 
 ## 五模型 Direct 契约
