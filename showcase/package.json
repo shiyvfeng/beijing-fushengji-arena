@@ -1,0 +1,30 @@
+{
+  "name": "beijing-fushengji-arena-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private, offline showcase for frozen Beijing Fushengji Arena replays",
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "verify:archive": "node scripts/verify-frozen-sample.mjs",
+    "test:web": "npm --prefix web test",
+    "typecheck": "npm --prefix web run typecheck",
+    "build:web": "npm --prefix web run build:site",
+    "build:home-release": "npm --prefix web run build:home && node scripts/build-home-release.mjs",
+    "build:bench-data": "node scripts/build-bench-data.mjs",
+    "build:bench-release": "npm run build:bench-data && npm --prefix web run build:bench && node scripts/build-bench-release.mjs",
+    "test:home-release": "node scripts/verify-home-release.mjs",
+    "test:bench-release": "node scripts/verify-bench-release.mjs",
+    "replay:enrich": "node web/scripts/generate-enrichment.mjs",
+    "replay:build": "node scripts/build-arena-replay.mjs",
+    "browser:install": "playwright install chromium",
+    "test:browser": "node scripts/run-arena-browser-acceptance.mjs",
+    "test:browser:fixture": "node scripts/run-arena-browser-acceptance.mjs --fixture",
+    "test": "npm run test:web && npm run typecheck"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}

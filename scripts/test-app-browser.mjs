@@ -1,0 +1,108 @@
+import { chromium, expect } from '@playwright/test';
+import { once } from 'node:events';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createApplication } from '../apps/server/src/app.mjs';
+const directory = mkdtempSync(join(tmpdir(), 'arena-app-browser-'));
+const app = createApplication({ dataDir: directory, allowedHosts: ['fake.invalid'], workerEnv: { NODE_OPTIONS: `--import=${new URL('../tests/server/fake-fetch.mjs', import.meta.url).href}` } });
+let browser;
+try {
+  app.server.listen(0, '127.0.0.1'); await once(app.server, 'listening');
+  const origin = `http://127.0.0.1:${app.server.address().port}`;
+  browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  const issues = [];
+  page.on('pageerror', error => issues.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') issues.push(message.text()); });
+  page.on('response', response => { if (response.status() >= 400) issues.push(`${response.status()} ${response.url()}`); });
+  page.on('request', request => { if (!request.url().startsWith(origin) && !request.url().startsWith('data:')) issues.push(`External request: ${request.url()}`); });
+  page.on('dialog', dialog => dialog.accept());
+  await page.goto(origin);
+  await expect(page.getByRole('heading', { name: '任务中心', exact: true })).toBeVisible();
+  mkdirSync('dist/app-browser', { recursive: true });
+  await expect(page.getByRole('button', { name: '观看演示 ↗', exact: true })).toBeVisible();
+  await expect(page.locator('.workspace-hero-art img')).toBeVisible();
+  const workspaceTheme = () => page.locator('.console').evaluate(element => ({ background: getComputedStyle(element).backgroundColor, color: getComputedStyle(element).color }));
+  const beforeReplay = await workspaceTheme();
+  await page.screenshot({ path: 'dist/app-browser/tasks-demo.png', fullPage: true });
+  await page.getByRole('button', { name: '观看演示 ↗', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '今日物价', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+  await expect(page.locator('.home-return-control')).toBeHidden();
+  await page.screenshot({ path: 'dist/app-browser/demo-replay.png', fullPage: true });
+  await page.getByRole('link', { name: /任务中心/ }).first().click();
+  await expect(page.getByRole('link', { name: '观看演示 ↗', exact: true })).toBeVisible();
+  expect(await workspaceTheme()).toEqual(beforeReplay);
+  expect(beforeReplay.background).toBe('rgb(243, 239, 229)');
+  await page.getByRole('link', { name: /模型管理/ }).click();
+  await page.getByRole('button', { name: '＋ 添加连接', exact: true }).click();
+  let dialog = page.getByRole('dialog');
+  await page.screenshot({ path: 'dist/app-browser/connection-dialog.png', fullPage: true });
+  await dialog.getByLabel('连接名称').fill('浏览器测试连接');
+  await dialog.getByLabel('Provider', { exact: true }).selectOption('openai-compatible');
+  await dialog.getByLabel('Base URL', { exact: true }).fill('https://fake.invalid/v1');
+  await dialog.getByLabel('API Key', { exact: true }).fill('sk-browser-fixture-12345678901234567890');
+  await dialog.getByRole('button', { name: '保存连接', exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  for (let i = 0; i < 5; i++) {
+    await page.getByRole('button', { name: '＋ 添加模型', exact: true }).click();
+    dialog = page.getByRole('dialog');
+    await dialog.getByLabel('配置名称', { exact: true }).fill(`测试模型 ${i + 1}`);
+    await dialog.getByLabel('模型 ID', { exact: true }).fill(`browser-model-${i + 1}`);
+    await dialog.getByRole('button', { name: '保存模型', exact: true }).click();
+    await expect(dialog).toHaveCount(0);
+  }
+  await page.getByRole('link', { name: /任务中心/ }).first().click();
+  await page.getByRole('link', { name: '＋ 新建任务', exact: true }).click();
+  await page.screenshot({ path: 'dist/app-browser/new-task.png', fullPage: true });
+  await page.getByLabel('任务名称', { exact: true }).fill('浏览器完整流程');
+  await page.getByRole('button', { name: '创建并启动', exact: true }).click();
+  await expect(page.locator('h1')).toContainText('浏览器完整流程');
+  await expect(page.locator('h1 .badge')).toHaveText('已完成', { timeout: 30000 });
+  await page.reload();
+  await expect(page.locator('h1 .badge')).toHaveText('已完成');
+  await page.getByRole('link', { name: '结果分析', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '比赛结果', exact: true })).toBeVisible();
+  await expect(page.locator('tbody tr')).toHaveCount(5);
+  mkdirSync('dist/app-browser', { recursive: true });
+  await page.screenshot({ path: 'dist/app-browser/results.png', fullPage: true });
+  await page.getByRole('link', { name: '比赛回放', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '今日物价', exact: true })).toBeVisible();
+  await page.getByRole('spinbutton', { name: '跳转到第几天' }).fill('40');
+  await page.getByRole('button', { name: '跳转', exact: true }).click();
+  await expect(page.locator('.match-status')).toContainText('40/40');
+  await page.getByRole('link', { name: /任务中心/ }).first().click();
+  await expect(page.getByRole('heading', { name: '任务中心', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: '浏览器完整流程', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'dist/app-browser/tasks.png', fullPage: true });
+  await page.getByRole('link', { name: /设置与存储/ }).click();
+  await expect(page.getByRole('heading', { name: '设置与存储', exact: true })).toBeVisible();
+  await page.screenshot({ path: 'dist/app-browser/settings.png', fullPage: true });
+  for (const width of [1366, 1920, 390]) {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(origin + '/models');
+    await expect(page.getByRole('heading', { name: '模型管理', exact: true })).toBeVisible();
+    await expect(page.locator('tbody tr')).toHaveCount(5);
+    await page.screenshot({ path: `dist/app-browser/models-${width}.png`, fullPage: true });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1);
+    if (overflow) throw new Error(`Console overflows at ${width}`);
+    if (width === 390) {
+      await page.goto(origin + '/tasks');
+      await expect(page.getByRole('link', { name: '观看演示 ↗', exact: true })).toBeVisible();
+      await page.screenshot({ path: 'dist/app-browser/tasks-mobile.png', fullPage: true });
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+      await page.getByRole('link', { name: '观看演示 ↗', exact: true }).click();
+      await expect(page.getByRole('heading', { name: '今日物价', exact: true })).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1)).toBe(false);
+      expect(await page.locator('.shared-stage').evaluate(element => { element.scrollLeft = element.scrollWidth; return element.scrollLeft > 0; })).toBe(true);
+      await page.locator('.shared-stage').evaluate(element => { element.scrollLeft = 0; });
+      await page.screenshot({ path: 'dist/app-browser/demo-replay-mobile.png', fullPage: true });
+    }
+  }
+  if (issues.length) throw new Error(issues.join('\n'));
+  writeFileSync('dist/app-browser/report.json', JSON.stringify({ passed: true, viewports: [1366, 1440, 1920, 390], checks: ['configure-connection', 'configure-five-models', 'create-start-task', 'backend-match', 'refresh', 'dynamic-results', 'day40-replay', 'navigation', 'responsive-console', 'demo-direct-replay', 'workspace-theme-isolation', 'replay-mobile-layout', 'no-remote-requests'] }, null, 2));
+  console.log('Web 应用浏览器完整流程通过：dist/app-browser/report.json');
+} finally {
+  await browser?.close(); await app.close(); rmSync(directory, { recursive: true, force: true });
+}

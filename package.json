@@ -1,21 +1,60 @@
 {
-  "name": "beijing-fushengji-mcp",
+  "name": "beijing-fushengji-arena",
   "version": "1.0.0",
-  "description": "北京浮生记 - AI Agent MCP Game Server",
+  "description": "北京浮生记 - 五模型 Direct Arena Runner",
   "type": "module",
-  "main": "dist/index.js",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*", "web", "showcase", "showcase/web"],
+  "main": "dist/arena-entry.js",
+  "exports": {
+    ".": "./dist/arena-entry.js",
+    "./arena": "./dist/arena/index.js",
+    "./core": "./dist/core/index.js",
+    "./legacy-mcp": "./dist/index.js"
+  },
   "bin": {
-    "beijing-fushengji": "dist/index.js"
+    "beijing-fushengji-arena": "dist/arena-direct-cli.js",
+    "beijing-fushengji-mcp": "dist/index.js"
+  },
+  "engines": {
+    "node": ">=24.19.0"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js"
+    "build": "npm run build:engine && npm --workspace @arena/web run build",
+    "build:engine": "tsc",
+    "dev": "node scripts/dev.mjs",
+    "start": "node --env-file-if-exists=.env apps/server/src/index.mjs",
+    "test:server": "node --test tests/server/*.test.mjs",
+    "test:app-browser": "node scripts/test-app-browser.mjs",
+    "setup": "node scripts/setup-project.mjs",
+    "test": "npm run test:arena && npm run test:showcase && npm run test:project && npm run test:server",
+    "test:project-browser": "node scripts/test-project-browser.mjs",
+    "arena:run": "node scripts/run-project.mjs",
+    "arena:view": "node scripts/view-project.mjs",
+    "arena:demo": "node scripts/view-project.mjs --input showcase/samples/gold-001/replay.json --enrichment showcase/curation/gold-001/replay-enrichment.json",
+    "test:showcase": "npm --prefix showcase/web test && npm --prefix showcase/web run typecheck",
+    "test:project": "node --test tests/project/*.test.mjs",
+    "test:showcase-browser": "node showcase/scripts/run-arena-browser-acceptance.mjs",
+    "start:mcp": "node dist/index.js",
+    "internal:arena:sample": "npm run build && node dist/arena-cli.js --replay-only --output dist/arena-demo/replay.json",
+    "arena:direct": "node scripts/run-arena-direct.mjs --",
+    "arena:replay": "node showcase/scripts/build-arena-replay.mjs",
+    "arena:replay:legacy": "node scripts/build-arena-replay.mjs",
+    "arena:browser:install": "playwright install chromium",
+    "model:list": "node tools/model-list-query/query-models.mjs",
+    "internal:build:arena": "node scripts/build-arena-demo.mjs",
+    "test:arena-core": "npm run build:engine && node --test tests/core/*.test.mjs",
+    "test:arena-web": "npm --prefix web test",
+    "test:arena-browser": "node scripts/run-arena-browser-acceptance.mjs",
+    "test:arena-browser:fixture": "node scripts/run-arena-browser-acceptance.mjs --fixture",
+    "test:arena": "npm run test:arena-core && npm run test:arena-web"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {
-    "typescript": "^5.8.2",
-    "@types/node": "^22.13.10"
+    "@playwright/test": "^1.62.1",
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2"
   }
 }

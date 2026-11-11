@@ -1,0 +1,279 @@
+import type { DirectModelProviderAdapter, DirectModelDecisionInput, SamplingAudit } from "../agent-driver.js";
+import type { ProviderReasoningEffort } from "../../core/contracts.js";
+import type { RawExchangeRecorder } from "../diagnostics.js";
+import {
+  buildArenaSystemInstruction,
+  buildArenaUserContext,
+  classifyHttpFailure,
+  DirectProviderRequestError,
+  isProviderRecord,
+  extractResponseModelRevision,
+  normalizeProviderTokenUsage,
+  parseStrictJsonDecision,
+  type ProviderResponseFacts,
+  requireProviderValue,
+  resolveProviderEndpoint,
+  validateMaxOutputTokens,
+  validateProviderApiKey,
+} from "./provider-utils.js";
+
+const DEFAULT_MAX_OUTPUT_TOKENS = 512;
+const ANTHROPIC_API_VERSION = "2023-06-01";
+
+export interface AnthropicMessagesProviderOptions {
+  readonly providerId?: string;
+  readonly apiKey: string;
+  readonly baseUrl: string;
+  readonly model: string;
+  readonly maxOutputTokens?: number;
+  readonly reasoningEffort?: ProviderReasoningEffort;
+  readonly completionAssisted?: boolean;
+  readonly declaredModelRevision?: string;
+  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly exchangeRecorder?: RawExchangeRecorder;
+}
+
+function collectAnthropicText(
+  payload: Record<string, unknown>,
+  providerId: string,
+  responseFacts: ProviderResponseFacts,
+): string {
+  if (payload.type !== "message" || !Array.isArray(payload.content)) {
+    throw new DirectProviderRequestError(
+      providerId,
+      "invalid_response",
+      `${providerId} Messages API 返回结构不合法`,
+      undefined,
+      responseFacts,
+    );
+  }
+  if (payload.stop_reason === "max_tokens") {
+    throw new DirectProviderRequestError(
+      providerId,
+      "incomplete",
+      `${providerId} Messages API 未完成 Arena 动作生成`,
+      undefined,
+      responseFacts,
+    );
+  }
+  if (payload.stop_reason === "refusal") {
+    throw new DirectProviderRequestError(
+      providerId,
+      "refusal",
+      `${providerId} Messages API 拒绝生成 Arena 动作`,
+      undefined,
+      responseFacts,
+    );
+  }
+  const chunks: string[] = [];
+  for (const content of payload.content) {
+    if (!isProviderRecord(content)) continue;
+    if (content.type === "text" && typeof content.text === "string") {
+      chunks.push(content.text);
+    }
+  }
+  if (chunks.length < 1) {
+    throw new DirectProviderRequestError(
+      providerId,
+      "invalid_response",
+      `${providerId} Messages API 未返回文本动作`,
+      undefined,
+      responseFacts,
+    );
+  }
+  return chunks.join("");
+}
+
+export class AnthropicMessagesProvider implements DirectModelProviderAdapter {
+  readonly providerId: string;
+  readonly adapterVersion = "anthropic-messages-v4";
+  readonly modelId: string;
+  readonly maxOutputTokens: number;
+  readonly reasoningEffort: ProviderReasoningEffort;
+  readonly declaredModelRevision?: string;
+  readonly samplingAudit: SamplingAudit;
+
+  readonly #apiKey: string;
+  readonly #endpoint: string;
+  readonly #fetch: typeof globalThis.fetch;
+  readonly #exchangeRecorder?: RawExchangeRecorder;
+  readonly #completionAssisted: boolean;
+
+  constructor(options: AnthropicMessagesProviderOptions) {
+    this.providerId = requireProviderValue(options.providerId ?? "anthropic", "providerId");
+    this.#apiKey = validateProviderApiKey(options.apiKey, this.providerId);
+    this.modelId = requireProviderValue(options.model, `${this.providerId} model`);
+    this.#endpoint = resolveProviderEndpoint(options.baseUrl, "messages", this.providerId);
+    this.maxOutputTokens = validateMaxOutputTokens(
+      options.maxOutputTokens ?? DEFAULT_MAX_OUTPUT_TOKENS,
+      this.providerId,
+    );
+    this.reasoningEffort = options.reasoningEffort ?? "default";
+    this.#completionAssisted = options.completionAssisted === true;
+    if (!["default", "low", "medium", "high", "xhigh", "max"].includes(this.reasoningEffort)) {
+      throw new Error("Anthropic reasoningEffort 配置无效");
+    }
+    if (options.declaredModelRevision?.trim()) {
+      this.declaredModelRevision = options.declaredModelRevision.trim();
+    }
+    this.samplingAudit = Object.freeze({
+      policyVersion: "provider-explicit-effort-audited-v2",
+      temperature: "omitted",
+      topP: "omitted",
+      maxOutputTokens: this.maxOutputTokens,
+      jsonMode: this.#completionAssisted ? "json-schema" : "none",
+      thinking: Object.freeze({ mode: "default", sent: false }),
+      reasoningEffort: Object.freeze({
+        level: this.reasoningEffort,
+        sent: this.reasoningEffort !== "default",
+      }),
+    });
+    this.#fetch = options.fetchImpl ?? globalThis.fetch;
+    this.#exchangeRecorder = options.exchangeRecorder;
+    if (typeof this.#fetch !== "function") {
+      throw new Error("当前运行时不支持 fetch，请升级到 Node.js 22 或显式注入 fetchImpl");
+    }
+  }
+
+  async requestDecision(input: DirectModelDecisionInput) {
+    const dailyPlanContract = input.decisionContract?.kind === "daily-plan"
+      ? input.decisionContract
+      : undefined;
+    const outputConfig = {
+      ...(this.reasoningEffort === "default" ? {} : { effort: this.reasoningEffort }),
+      ...(this.#completionAssisted && dailyPlanContract ? {
+        format: {
+          type: "json_schema",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            required: ["planId", "destinationId"],
+            properties: {
+              planId: { type: "string", enum: dailyPlanContract.planIds },
+              destinationId: { type: "integer", enum: dailyPlanContract.destinationIds },
+            },
+          },
+        },
+      } : {}),
+    };
+    const body = {
+      model: this.modelId,
+      max_tokens: this.maxOutputTokens,
+      system: buildArenaSystemInstruction(input),
+      messages: [{ role: "user", content: buildArenaUserContext(input) }],
+      stream: false,
+      ...(Object.keys(outputConfig).length > 0 ? { output_config: outputConfig } : {}),
+    };
+
+    const requestHeaders = {
+      "x-api-key": this.#apiKey,
+      "anthropic-version": ANTHROPIC_API_VERSION,
+      "Content-Type": "application/json",
+    };
+    const requestBody = JSON.stringify(body);
+    let response: Response;
+    try {
+      response = await this.#fetch(this.#endpoint, {
+        method: "POST",
+        headers: requestHeaders,
+        body: requestBody,
+        signal: input.signal,
+        redirect: "error",
+      });
+    } catch {
+      this.#exchangeRecorder?.capture({
+        modelCallId: input.modelCallId,
+        provider: this.providerId,
+        endpoint: this.#endpoint,
+        request: { method: "POST", headers: requestHeaders, body: requestBody },
+        transportError: true,
+      });
+      if (input.signal.aborted) {
+        throw input.signal.reason instanceof Error
+          ? input.signal.reason
+          : new Error("Provider 请求已取消");
+      }
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "transport_error",
+        `${this.providerId} Messages API 请求失败`,
+      );
+    }
+    this.#exchangeRecorder?.capture({
+      modelCallId: input.modelCallId,
+      provider: this.providerId,
+      endpoint: this.#endpoint,
+      request: { method: "POST", headers: requestHeaders, body: requestBody },
+      response: response.clone(),
+    });
+
+    if (!response.ok) {
+      const classification = await classifyHttpFailure(response);
+      throw new DirectProviderRequestError(
+        this.providerId,
+        classification.code,
+        `${this.providerId} Messages API 返回 HTTP ${response.status}`,
+        response.status,
+        { retryDisposition: classification.retryDisposition },
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Messages API 返回的 JSON 无法解析`,
+      );
+    }
+    if (!isProviderRecord(payload)) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Messages API 返回结构不合法`,
+      );
+    }
+    const responseModelRevision = extractResponseModelRevision(payload);
+    if (payload.usage !== undefined && !isProviderRecord(payload.usage)) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Messages API usage 协议不合法`,
+        undefined,
+        { responseModelRevision },
+      );
+    }
+    const usage = isProviderRecord(payload.usage)
+      ? normalizeProviderTokenUsage(
+          payload.usage.input_tokens,
+          payload.usage.output_tokens,
+        )
+      : undefined;
+    if (isProviderRecord(payload.usage) && !usage) {
+      throw new DirectProviderRequestError(
+        this.providerId,
+        "invalid_response",
+        `${this.providerId} Messages API usage 协议不合法`,
+        undefined,
+        { responseModelRevision },
+      );
+    }
+    const responseFacts = Object.freeze({
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+      ...(usage ? { tokenUsage: usage } : {}),
+    });
+    const action = parseStrictJsonDecision(
+      collectAnthropicText(payload, this.providerId, responseFacts),
+      input,
+      this.providerId,
+      responseFacts,
+    );
+    return Object.freeze({
+      action,
+      ...(usage ? { usage } : {}),
+      ...(responseModelRevision ? { responseModelRevision } : {}),
+    });
+  }
+}

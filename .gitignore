@@ -1,3 +1,16 @@
 node_modules/
+var/
+.DS_Store
+showcase/web/dist/
+showcase/release/
+showcase/work/
+showcase/evidence/
+showcase/test-results/
+showcase/playwright-report/
 dist/
+playwright-report/
+test-results/
+.env
+.env.*
+!.env.example
 北京浮生记_AI_Agent_Skill_设计文档.md

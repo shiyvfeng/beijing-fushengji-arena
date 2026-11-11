@@ -1,0 +1,377 @@
+import type {
+  AgentDescriptor,
+  ArenaEvent,
+  EpisodeTrace,
+  FaultDomain,
+  FinalResult,
+  GameAction,
+  ModelDecisionEvidence,
+  ModelObservation,
+  Observation,
+  ProviderReasoningEffort,
+  ProviderThinkingMode,
+  StepResult,
+  TechnicalFailureCategory,
+} from "../core/contracts.js";
+import type { StateDiff } from "../core/state-diff.js";
+import type { DailyPlanOptions, DailyPlanSelection } from "./completion-assisted.js";
+
+export interface AgentDecisionHistoryEntry {
+  readonly actionIndex: number;
+  readonly attemptIndex: number;
+  readonly dayBefore: number;
+  readonly dayAfter: number;
+  readonly action: GameAction | Readonly<Record<string, unknown>>;
+  readonly result: {
+    readonly success: boolean;
+    readonly code: string | null;
+    readonly message: string;
+    readonly effects: ArenaEvent["result"]["effects"];
+  };
+  readonly stateDiff: StateDiff;
+}
+
+export interface DecisionRetryFeedback {
+  readonly category: TechnicalFailureCategory;
+  readonly actionErrorCode?: string;
+  readonly rejectedAction?: SafeRejectedAction;
+}
+
+export interface AgentDecisionInput {
+  readonly matchId: string;
+  readonly observation: Observation;
+  readonly actionIndex: number;
+  readonly attemptIndex?: number;
+  readonly retryFeedback?: DecisionRetryFeedback;
+  readonly history: readonly AgentDecisionHistoryEntry[];
+  readonly dailyPlanOptions?: DailyPlanOptions;
+  readonly signal: AbortSignal;
+}
+
+export interface AgentActionDecisionOutput {
+  readonly action: GameAction;
+  readonly evidence?: ModelDecisionEvidence;
+}
+
+export interface AgentDailyPlanDecisionOutput {
+  readonly dailyPlanSelection: DailyPlanSelection;
+  readonly evidence?: ModelDecisionEvidence;
+}
+
+export type AgentDecisionOutput = AgentActionDecisionOutput | AgentDailyPlanDecisionOutput;
+
+export interface AgentResetInput {
+  readonly signal: AbortSignal;
+}
+
+export interface ModelCallEvidenceLink {
+  readonly actionEventIds?: readonly string[];
+  readonly assistanceEventId?: string;
+  readonly terminationEventId?: string;
+  readonly retryReason?: TechnicalFailureCategory;
+}
+
+/** Shared boundary for scripted, Direct Model and future strict-MCP drivers. */
+export interface AgentDriver {
+  readonly descriptor: AgentDescriptor;
+  readonly competitionProfile?: DirectCompetitionProfile;
+  reset?(input: AgentResetInput): void | Promise<void>;
+  decide(input: AgentDecisionInput): GameAction | AgentDecisionOutput | Promise<GameAction | AgentDecisionOutput>;
+  getRunMetrics?(): DirectModelRunMetrics;
+  getActiveDecisionEvidence?(): ModelDecisionEvidence | undefined;
+  recordExternalDecisionFailure?(
+    category: TechnicalFailureCategory,
+    domain: FaultDomain,
+    countsTowardModelFailure: boolean,
+  ): ModelDecisionEvidence | undefined;
+  linkModelCallEvidence?(modelCallId: string, link: ModelCallEvidenceLink): void;
+}
+
+export interface DirectModelDecisionInput extends Omit<AgentDecisionInput, "observation"> {
+  readonly observation: ModelObservation;
+  readonly modelCallId: string;
+  readonly fullContextHash: string;
+  readonly systemInstruction: string;
+  readonly userContext: string;
+  readonly decisionContract?:
+    | { readonly kind: "game-action" }
+    | {
+      readonly kind: "daily-plan";
+      readonly planIds: readonly string[];
+      readonly destinationIds: readonly number[];
+    };
+}
+
+export type DirectProviderErrorCode =
+  | "transport_error"
+  | "http_error"
+  | "invalid_response"
+  | "invalid_action"
+  | "refusal"
+  | "incomplete"
+  | "context_limit";
+
+export type ProviderRetryDisposition = "transient" | "non_retryable";
+
+export interface ProviderTokenUsage {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+}
+
+export const DIRECT_ACTION_REPAIR_CODES = Object.freeze([
+  "invalid_json",
+  "action_must_be_object",
+  "action_type_unknown",
+  "action_fields_invalid",
+  "location_id_must_be_non_negative_integer",
+  "item_id_must_be_non_negative_integer",
+  "quantity_must_be_positive_integer",
+  "amount_must_be_positive_integer",
+  "points_must_be_positive_integer",
+  "action_not_allowed",
+  "plan_must_be_object",
+  "plan_fields_invalid",
+  "plan_id_unknown",
+  "destination_id_unknown",
+] as const);
+
+export type DirectActionRepairCode = (typeof DIRECT_ACTION_REPAIR_CODES)[number];
+
+export interface SafeRejectedAction {
+  readonly type: GameAction["type"] | "daily_plan" | "unknown";
+  readonly locationId?: number;
+  readonly itemId?: number;
+  readonly quantity?: number;
+  readonly amount?: number;
+  readonly points?: number;
+  readonly planId?: string;
+  readonly destinationId?: number;
+}
+
+const DIRECT_ACTION_TYPES = new Set<GameAction["type"]>([
+  "move",
+  "buy",
+  "sell",
+  "deposit",
+  "withdraw",
+  "repay_debt",
+  "heal",
+  "expand_capacity",
+]);
+
+/** Keep only the public action discriminant and safe integer fields. */
+export function sanitizeRejectedAction(value: unknown): SafeRejectedAction | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const type = typeof record.type === "string" && DIRECT_ACTION_TYPES.has(record.type as GameAction["type"])
+    ? record.type as GameAction["type"]
+    : typeof record.planId === "string" || record.type === "daily_plan"
+      ? "daily_plan"
+      : "unknown";
+  const summary: {
+    type: SafeRejectedAction["type"];
+    locationId?: number;
+    itemId?: number;
+    quantity?: number;
+    amount?: number;
+    points?: number;
+    planId?: string;
+    destinationId?: number;
+  } = { type };
+  for (const field of ["locationId", "itemId", "quantity", "amount", "points"] as const) {
+    if (Number.isSafeInteger(record[field])) summary[field] = Number(record[field]);
+  }
+  if (typeof record.planId === "string") summary.planId = record.planId.slice(0, 32);
+  if (Number.isSafeInteger(record.destinationId)) {
+    summary.destinationId = Number(record.destinationId);
+  }
+  return Object.freeze(summary);
+}
+
+const ERROR_OBSERVATION: Readonly<Record<DirectProviderErrorCode, {
+  readonly domain: FaultDomain;
+  readonly countsTowardModelFailure: boolean;
+}>> = Object.freeze({
+  transport_error: Object.freeze({ domain: "platform", countsTowardModelFailure: false }),
+  http_error: Object.freeze({ domain: "provider", countsTowardModelFailure: false }),
+  invalid_response: Object.freeze({ domain: "protocol", countsTowardModelFailure: false }),
+  invalid_action: Object.freeze({ domain: "model", countsTowardModelFailure: true }),
+  refusal: Object.freeze({ domain: "model", countsTowardModelFailure: true }),
+  incomplete: Object.freeze({ domain: "model", countsTowardModelFailure: true }),
+  context_limit: Object.freeze({ domain: "model", countsTowardModelFailure: true }),
+});
+
+/** Safe-to-report provider error. It never retains bodies, headers, keys or causes. */
+export class DirectProviderRequestError extends Error {
+  readonly code: DirectProviderErrorCode;
+  readonly providerId: string;
+  readonly httpStatus?: number;
+  readonly domain: FaultDomain;
+  readonly countsTowardModelFailure: boolean;
+  readonly responseModelRevision?: string;
+  readonly tokenUsage?: ProviderTokenUsage;
+  readonly actionRepairCode?: DirectActionRepairCode;
+  readonly rejectedAction?: SafeRejectedAction;
+  readonly retryDisposition?: ProviderRetryDisposition;
+
+  constructor(
+    providerId: string,
+    code: DirectProviderErrorCode,
+    message: string,
+    httpStatus?: number,
+    observation: {
+      readonly domain?: FaultDomain;
+      readonly countsTowardModelFailure?: boolean;
+      readonly responseModelRevision?: string;
+      readonly tokenUsage?: ProviderTokenUsage;
+      readonly actionRepairCode?: DirectActionRepairCode;
+      readonly rejectedAction?: unknown;
+      readonly retryDisposition?: ProviderRetryDisposition;
+    } = {},
+  ) {
+    super(message);
+    this.name = "DirectProviderRequestError";
+    this.providerId = providerId;
+    this.code = code;
+    if (httpStatus !== undefined) this.httpStatus = httpStatus;
+    this.domain = observation.domain ?? ERROR_OBSERVATION[code].domain;
+    this.countsTowardModelFailure = observation.countsTowardModelFailure
+      ?? ERROR_OBSERVATION[code].countsTowardModelFailure;
+    if (observation.responseModelRevision?.trim()) {
+      this.responseModelRevision = observation.responseModelRevision.trim();
+    }
+    if (observation.tokenUsage) {
+      const { inputTokens, outputTokens, totalTokens } = observation.tokenUsage;
+      if (!Number.isSafeInteger(inputTokens) || inputTokens < 0
+        || !Number.isSafeInteger(outputTokens) || outputTokens < 0
+        || !Number.isSafeInteger(totalTokens) || totalTokens < inputTokens + outputTokens) {
+        throw new Error("DirectProviderRequestError tokenUsage 无效");
+      }
+      this.tokenUsage = Object.freeze({ inputTokens, outputTokens, totalTokens });
+    }
+    if (observation.actionRepairCode) {
+      if (!DIRECT_ACTION_REPAIR_CODES.includes(observation.actionRepairCode)) {
+        throw new Error("DirectProviderRequestError actionRepairCode 无效");
+      }
+      this.actionRepairCode = observation.actionRepairCode;
+    }
+    const rejectedAction = sanitizeRejectedAction(observation.rejectedAction);
+    if (rejectedAction) this.rejectedAction = rejectedAction;
+    if (observation.retryDisposition) this.retryDisposition = observation.retryDisposition;
+  }
+}
+
+export interface DirectProviderDecisionResult {
+  readonly action: unknown;
+  readonly usage?: ProviderTokenUsage;
+  readonly responseModelRevision?: string;
+}
+
+export interface SamplingAudit {
+  readonly policyVersion: "provider-explicit-effort-audited-v2";
+  readonly temperature: "omitted";
+  readonly topP: "omitted";
+  readonly maxOutputTokens: number;
+  readonly jsonMode: "none" | "json-object" | "json-schema";
+  readonly thinking: {
+    readonly mode: ProviderThinkingMode;
+    readonly sent: boolean;
+  };
+  readonly reasoningEffort: {
+    readonly level: ProviderReasoningEffort;
+    readonly sent: boolean;
+  };
+}
+
+export interface DirectCompetitionProfile {
+  readonly decisionPolicyId: string;
+  readonly decisionPolicyHash: string;
+  readonly modelObservationVersion: string;
+  readonly runTrack?: "completion-assisted-v1";
+  readonly contextPolicyVersion: "bounded-history-v1" | "bounded-daily-history-v1";
+  readonly recoveryPolicyVersion: "bounded-retry-v2" | "completion-assisted-v1";
+  readonly samplingPolicyVersion: "provider-explicit-effort-audited-v2";
+  readonly maxOutputTokensPerRequest: number;
+  readonly dailyPlanPolicyVersion?: "daily-plan-v1";
+  readonly candidatePolicyVersion?: "feasible-daily-plan-128-v1";
+  readonly assistancePolicyVersion?: "assisted-pass-day-v1";
+}
+
+export interface ModelRevisionAudit {
+  readonly declared: string | null;
+  readonly response: string | null;
+  readonly resolved: string;
+  readonly mismatch: boolean;
+}
+
+export interface ModelCallFailureAudit {
+  readonly category: TechnicalFailureCategory;
+  readonly domain: FaultDomain;
+  readonly countsTowardModelFailure: boolean;
+  readonly httpStatus?: number;
+  readonly retryDisposition?: ProviderRetryDisposition;
+}
+
+export interface ArenaModelCallAudit {
+  readonly artifactType: "arena-model-call-v3";
+  readonly modelCallId: string;
+  readonly agentId: string;
+  readonly agentSlot: number;
+  readonly actionIndex: number;
+  readonly attemptIndex: number;
+  readonly observationHash: string;
+  readonly fullContextHash: string;
+  readonly status: "succeeded" | "failed";
+  readonly latencyMs: number;
+  readonly tokenUsage: ProviderTokenUsage | null;
+  readonly usageMissing: boolean;
+  readonly sampling: SamplingAudit;
+  readonly modelRevision: ModelRevisionAudit;
+  readonly actionEventIds: readonly string[];
+  readonly assistanceEventId: string | null;
+  readonly terminationEventId: string | null;
+  readonly retryReason: TechnicalFailureCategory | null;
+  readonly failure: ModelCallFailureAudit | null;
+}
+
+export interface DirectModelRunMetrics {
+  readonly calls: readonly ArenaModelCallAudit[];
+  readonly requestCount: number;
+  readonly successfulRequestCount: number;
+  readonly failedRequestCount: number;
+  readonly retryAttemptCount: number;
+  readonly usageReportedRequestCount: number;
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly latencyMs: {
+    readonly total: number;
+    readonly minimum: number | null;
+    readonly maximum: number | null;
+    readonly average: number | null;
+  };
+  readonly errorCounts: Readonly<Partial<Record<TechnicalFailureCategory, number>>>;
+}
+
+/** A provider adapter owns the external call and returns untrusted data. */
+export interface DirectModelProviderAdapter {
+  readonly providerId: string;
+  readonly adapterVersion: string;
+  readonly modelId: string;
+  readonly maxOutputTokens: number;
+  readonly thinkingMode?: ProviderThinkingMode;
+  readonly reasoningEffort?: ProviderReasoningEffort;
+  readonly declaredModelRevision?: string;
+  readonly samplingAudit?: SamplingAudit;
+  requestDecision(input: DirectModelDecisionInput): Promise<DirectProviderDecisionResult>;
+}
+
+/** Contract only; the Host owns a future strict MCP tool loop. */
+export interface StrictMcpEpisodePort {
+  readonly descriptor: AgentDescriptor;
+  observe(): Observation;
+  dispatch(action: unknown): StepResult | Promise<StepResult>;
+  finalize(): FinalResult | Promise<FinalResult>;
+  exportTrace(): EpisodeTrace | Promise<EpisodeTrace>;
+}

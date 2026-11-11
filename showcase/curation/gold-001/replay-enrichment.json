@@ -1,0 +1,102 @@
+{
+  "schemaVersion": "arena-replay-enrichment-v1",
+  "sourceReplayHash": "sha256:cb2a3e476ebc6761fbcb1d2e3be9f886b40ac50a5c39bd00ebb53bccffaaa225",
+  "sourceFactHash": "sha256:f0a9aacd3f3819e975b2f2cf9ff9f6af568598045569a866d63d415f95e8bb26",
+  "generator": {
+    "id": "curated-highlights",
+    "version": "1.0.0",
+    "configHash": "sha256:7ae010f5b63e73da38fbe5fee376df2aa3c8743fd3cd2f58e18c2846041ae282"
+  },
+  "highlights": [
+    {
+      "id": "g1-04-qwen-comeback",
+      "day": 21,
+      "kind": "net_worth_swing",
+      "title": "Qwen 逆袭登顶",
+      "summary": "Qwen 卖出 100 份进口香烟，单日净资产增加 30,957 元，并反超至第一。",
+      "agentIds": [
+        "competitor-4"
+      ],
+      "evidenceEventIds": [
+        "event_372e2c2bf5f05c9f",
+        "event_fcd5066552a38f52",
+        "event_752e92a866337611"
+      ],
+      "priority": 92,
+      "featured": true
+    },
+    {
+      "id": "g1-08-altman-gift",
+      "day": 24,
+      "kind": "net_worth_swing",
+      "title": "获赠假酒，现场变现还债",
+      "summary": "Altman 获赠 4 瓶假白酒，当天卖出 13,976 元并全部用于还债，单日净资产增加 11,292 元。",
+      "agentIds": [
+        "competitor-1"
+      ],
+      "evidenceEventIds": [
+        "event_d8bdad9ca04c7ece",
+        "event_e831e9687e4aa7ed",
+        "event_467e7ea381dc9410"
+      ],
+      "priority": 94,
+      "featured": true
+    },
+    {
+      "id": "g1-14-deepseek-gamble",
+      "day": 32,
+      "kind": "net_worth_swing",
+      "title": "梭哈假白酒，反超登顶",
+      "summary": "DeepSeek 第 30 天投入 9,180 元买入 4 瓶假白酒，占当时现金 87%；第 32 天以 94,584 元卖出，单日净资产增加 94,373 元并反超至第一。",
+      "agentIds": [
+        "competitor-3"
+      ],
+      "evidenceEventIds": [
+        "event_651292f85e7f672a",
+        "global_147a05a1fe2179a1",
+        "event_1df455811be80c40",
+        "event_2b4e9edc8eab885d"
+      ],
+      "priority": 100,
+      "featured": true
+    },
+    {
+      "id": "g1-18-claude-exit",
+      "day": 36,
+      "kind": "game_exit",
+      "title": "Claude 遗憾退场",
+      "summary": "Claude 的健康由 2 降至 0，成为本场首位游戏内退场者。",
+      "agentIds": [
+        "competitor-2"
+      ],
+      "evidenceEventIds": [
+        "event_db117fc6ccb0fc1f"
+      ],
+      "priority": 98,
+      "featured": true
+    },
+    {
+      "id": "g1-20-final-podium",
+      "day": 40,
+      "kind": "final_result",
+      "title": "终局揭晓",
+      "summary": "统一结算后，DeepSeek 以 97,052 元夺冠，Qwen 以 34,085 元获得第二，OpenAI 以 -54,260 元获得第三。",
+      "agentIds": [
+        "competitor-3",
+        "competitor-4",
+        "competitor-1"
+      ],
+      "evidenceEventIds": [
+        "event_eab8ec98cc567fe7",
+        "event_4f0358c0b401dcb2",
+        "event_b4da5df698de5aca",
+        "event_59d8bd382bc61b87",
+        "event_4ceb7b5b2bdfbf46",
+        "event_fb792a368fc9d595"
+      ],
+      "priority": 110,
+      "featured": true
+    }
+  ],
+  "enrichmentHash": "sha256:0e2e97bb97a8d5cd59b96f7090fcd50b3c20c80ddd4d076eae8249e16cd57da3"
+}

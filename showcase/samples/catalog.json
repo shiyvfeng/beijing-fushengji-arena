@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "showcase-samples-v1",
+  "samples": [
+    {
+      "id": "gold-001",
+      "ready": true,
+      "title": "Completion-Assisted 金样 1",
+      "runTrack": "completion-assisted-v1",
+      "matchId": "arena-completion-assisted-v1-prompt-v2-run-001-attempt-003",
+      "replayPath": "gold-001/replay.json",
+      "replayFileSha256": "4a7bdc57b646a347ce2c26441ebe72b367c01ac52f35502aff8d32b0cc6400b3",
+      "replayHash": "sha256:cb2a3e476ebc6761fbcb1d2e3be9f886b40ac50a5c39bd00ebb53bccffaaa225",
+      "factHash": "sha256:f0a9aacd3f3819e975b2f2cf9ff9f6af568598045569a866d63d415f95e8bb26",
+      "expectedEnrichmentHash": "sha256:ef97081aeaf5da53cd47b0d80bc5dffed17e5b32fbb9b7fb79f790ad61253db6"
+    },
+    {
+      "id": "gold-002",
+      "ready": true,
+      "title": "Completion-Assisted High-Effort 金样 2",
+      "runTrack": "completion-assisted-v1",
+      "matchId": "arena-completion-assisted-v1-high-effort-run-002-attempt-004",
+      "replayPath": "gold-002/replay.json",
+      "replayFileSha256": "c4a9b54686eec79f5056901ac6c6799c7f58e0141f9e0021a8161266322055db",
+      "replayHash": "sha256:8ac483dc53a2ecd4258ef32cf277b9690d995b73982cb06be144464d3e7c393f",
+      "factHash": "sha256:2d38e5a1e5961bf31e78c8cfb86b1a27a773443467a83c1a39983ea5ce6225df",
+      "expectedEnrichmentHash": "sha256:7d8d928f56e3d95cdbb51869860c3c76845cc3e94dadb6a90271fd1ecde38902"
+    }
+  ],
+  "pendingSources": []
+}

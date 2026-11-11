@@ -1,0 +1,53 @@
+{
+  "schemaVersion": "arena-audio-assets/0.1",
+  "assets": {
+    "demo.bgm.happy-times": {
+      "fileName": "demo-bgm-happy-times-v1.mp3",
+      "relativePath": "./assets/audio/demo-bgm-happy-times-v1.mp3",
+      "sourceName": "《大富翁4》怀旧游戏BGM合辑 - 002 - 欢乐好时光.mp3",
+      "sha256": "348140d0ac7b385f85b2ae60ea03a551990308fd5b4dd492c9bff8f737801196",
+      "durationSeconds": 140.512653,
+      "sampleRateHz": 44100,
+      "channels": 2,
+      "usageScope": "private-demo-only",
+      "licenseOrReviewStatus": "Rights not cleared for public distribution.",
+      "publicDistributionAllowed": false
+    },
+    "highlight.gold1.voice.deepseek-gamble": {
+      "fileName": "highlight-gold1-deepseek-gamble-v1.wav",
+      "relativePath": "./assets/audio/highlight-gold1-deepseek-gamble-v1.wav",
+      "sourceName": "我要梭哈1.wav",
+      "sha256": "f3fb102ccf258e697116b6494586d73d718ec2b24ecc846fec872ad8932a26f9",
+      "durationSeconds": 2.068,
+      "sampleRateHz": 40000,
+      "channels": 2,
+      "usageScope": "private-demo-only",
+      "licenseOrReviewStatus": "User-provided private-demo voiceover; public distribution rights not established.",
+      "publicDistributionAllowed": false
+    },
+    "highlight.gold1.voice.dario-exit": {
+      "fileName": "highlight-gold1-dario-exit-v1.wav",
+      "relativePath": "./assets/audio/highlight-gold1-dario-exit-v1.wav",
+      "sourceName": "遗憾离场1.wav",
+      "sha256": "81d3732c2e871953ed3665da69e7938d316c2bc037d8454eb442d4ab524a12f8",
+      "durationSeconds": 3.26625,
+      "sampleRateHz": 40000,
+      "channels": 2,
+      "usageScope": "private-demo-only",
+      "licenseOrReviewStatus": "User-provided private-demo voiceover; public distribution rights not established.",
+      "publicDistributionAllowed": false
+    },
+    "highlight.gold1.voice.final-victory": {
+      "fileName": "highlight-gold1-final-victory-v1.wav",
+      "relativePath": "./assets/audio/highlight-gold1-final-victory-v1.wav",
+      "sourceName": "获胜.wav",
+      "sha256": "d3fdabab0302c952a4255e1beff419deb75e392514f7a2bc1a595cfc9c76ff99",
+      "durationSeconds": 3.551275,
+      "sampleRateHz": 40000,
+      "channels": 2,
+      "usageScope": "private-demo-only",
+      "licenseOrReviewStatus": "User-provided private-demo voiceover; public distribution rights not established.",
+      "publicDistributionAllowed": false
+    }
+  }
+}

@@ -1,0 +1,13 @@
+node_modules/
+web/node_modules/
+web/dist/
+
+.env
+.env.*
+!.env.example
+
+dist/arena-diagnostics/
+dist/arena-direct/
+dist/arena-demo/
+
+*.tgz

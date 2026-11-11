@@ -1,0 +1,15 @@
+import { spawn, spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+import { dirname, join } from 'node:path';
+const root = fileURLToPath(new URL('../', import.meta.url));
+const build = spawnSync('npm', ['run', 'build:engine'], { cwd: root, stdio: 'inherit' });
+if (build.status !== 0) process.exit(build.status ?? 1);
+const server = spawn(process.execPath, ['--env-file-if-exists=.env', 'apps/server/src/index.mjs'], { cwd: root, stdio: 'inherit' });
+const require = createRequire(import.meta.url);
+const vite = join(dirname(require.resolve('vite/package.json')), 'bin/vite.js');
+const web = spawn(process.execPath, [vite, '--host', '127.0.0.1'], { cwd: join(root, 'apps/web'), stdio: 'inherit' });
+let stopping = false;
+const stop = (code = 0) => { if (stopping) return; stopping = true; server.kill('SIGTERM'); web.kill('SIGTERM'); process.exitCode = code; };
+server.on('exit', code => stop(code ?? 1)); web.on('exit', code => stop(code ?? 1));
+for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => stop());

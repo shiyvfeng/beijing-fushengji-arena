@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/dist
+var
+.env
+.env.*
+**/test-results
+**/playwright-report
+**/release
+**/work
+**/evidence
+design
+music
+/image.png
