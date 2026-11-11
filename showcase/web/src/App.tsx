@@ -725,7 +725,7 @@ function AuditFooter({ replay, slice }: { replay: ReplayArtifact; slice: Visible
   );
 }
 
-function Dashboard({ replay, enrichment }: { replay: ReplayArtifact; enrichment: ReplayEnrichmentSource }) {
+export function ReplayView({ replay, enrichment }: { replay: ReplayArtifact; enrichment: ReplayEnrichmentSource }) {
   const sessionView = Boolean(document.getElementById("arena-session-data"));
   const [day, setDay] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -892,5 +892,5 @@ export function App() {
     return { replay, enrichment: loadReplayEnrichmentSource(replay.replay) };
   });
   if (sources.replay.status === "error") return <ReplayLoadError source={sources.replay} />;
-  return <Dashboard replay={sources.replay.replay} enrichment={sources.enrichment!} />;
+  return <ReplayView replay={sources.replay.replay} enrichment={sources.enrichment!} />;
 }

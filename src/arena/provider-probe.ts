@@ -126,6 +126,7 @@ export interface ProbeFingerprintInput {
 }
 
 export interface ProviderProbeConfig {
+  readonly signal?: AbortSignal;
   readonly matchId: string;
   readonly seed: number;
   readonly scenario: ScenarioConfig;
@@ -223,6 +224,7 @@ function metricsForLastCall(driver: AgentDriver) {
 }
 
 async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promise<ProviderProbeEntry> {
+  config.signal?.throwIfAborted();
   const base = entryBase(driver);
   const environment = new GameEnvironment();
   const observation = environment.reset({
@@ -254,7 +256,7 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
         actionIndex: 0,
         history: [],
         ...(dailyPlanOptions ? { dailyPlanOptions } : {}),
-        signal: controller.signal,
+        signal: config.signal ? AbortSignal.any([controller.signal, config.signal]) : controller.signal,
       })),
       timeout,
     ]);
@@ -321,6 +323,7 @@ async function probeOne(config: ProviderProbeConfig, driver: AgentDriver): Promi
       fault: null,
     });
   } catch (error: unknown) {
+    config.signal?.throwIfAborted();
     let fault: ProbeFaultAudit;
     if (error instanceof ProbeTimeoutError
       || (controller.signal.aborted && controller.signal.reason instanceof ProbeTimeoutError)) {

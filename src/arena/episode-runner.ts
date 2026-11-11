@@ -1,4 +1,6 @@
 import { performance } from "node:perf_hooks";
+import { setTimeout as delay } from "node:timers/promises";
+import { abortable } from "./cancellation.js";
 import type {
   AssistanceReason,
   DriverKind,
@@ -44,6 +46,7 @@ import {
 } from "./completion-assisted.js";
 
 export interface EpisodeRunConfig {
+  readonly signal?: AbortSignal;
   readonly matchId: string;
   readonly seed: number;
   readonly scenario: ScenarioConfig;
@@ -247,6 +250,7 @@ async function withDriverTimeout<T>(
   timeoutMs: number,
   category: "timeout" | "total_wall_clock",
   operation: (signal: AbortSignal) => T | Promise<T>,
+  externalSignal?: AbortSignal,
 ): Promise<T> {
   const controller = new AbortController();
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
@@ -258,7 +262,9 @@ async function withDriverTimeout<T>(
     }, timeoutMs);
   });
   try {
-    return await Promise.race([Promise.resolve().then(() => operation(controller.signal)), timeout]);
+    externalSignal?.throwIfAborted();
+    const signal = externalSignal ? AbortSignal.any([controller.signal, externalSignal]) : controller.signal;
+    return await abortable(Promise.race([Promise.resolve().then(() => operation(signal)), timeout]), externalSignal);
   } catch (error: unknown) {
     if (controller.signal.aborted && controller.signal.reason instanceof DriverTimeoutError) {
       throw controller.signal.reason;
@@ -417,10 +423,11 @@ async function runStrictEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOut
     }));
   }
   try {
-    await withDriverTimeout("reset", resetTimeoutMs, "timeout", signal => config.driver.reset?.({ signal }));
+    await withDriverTimeout("reset", resetTimeoutMs, "timeout", signal => config.driver.reset?.({ signal }), config.signal);
     const wallClockStartedAt = performance.now();
     const wallClockDeadline = wallClockStartedAt + totalWallClockMs;
     while (environment.observe().state.status === "running") {
+      config.signal?.throwIfAborted();
       if (validActionCount >= maxActions) {
         environment.terminateTechnical(
           "tool_limit",
@@ -516,8 +523,10 @@ async function runStrictEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOut
               history: [...history],
               signal,
             }),
+            config.signal,
           ));
         } catch (error: unknown) {
+          config.signal?.throwIfAborted();
           if (!(error instanceof DriverTimeoutError)
             && !(error instanceof DirectProviderRequestError)) throw error;
           const facts = failureFacts(error);
@@ -656,6 +665,7 @@ async function runStrictEpisode(config: EpisodeRunConfig): Promise<EpisodeRunOut
     }
   } catch (error: unknown) {
     let evidence: ModelDecisionEvidence | undefined;
+    config.signal?.throwIfAborted();
     let detail: TechnicalFailureDetail;
     let status: "model_timeout" | "runtime_error";
     let message: string;
@@ -822,7 +832,7 @@ async function runCompletionAssistedEpisode(
   const backoffSchedule = config.completionBackoffScheduleMs ?? COMPLETION_BACKOFF_SCHEDULE_MS;
   const clock = config.completionClock ?? {
     now: () => performance.now(),
-    sleep: (milliseconds: number) => new Promise<void>(resolve => setTimeout(resolve, milliseconds)),
+    sleep: (milliseconds: number) => delay(milliseconds, undefined, { signal: config.signal }),
   };
   if (backoffSchedule.length !== 2
     || backoffSchedule.some(value => !Number.isSafeInteger(value) || value < 0)) {
@@ -924,8 +934,9 @@ async function runCompletionAssistedEpisode(
   try {
     await withDriverTimeout("reset", config.resetTimeoutMs ?? 5_000, "timeout", signal => (
       config.driver.reset?.({ signal })
-    ));
+    ), config.signal);
     while (environment.observe().state.status === "running") {
+      config.signal?.throwIfAborted();
       const currentDay = environment.observe().state.day;
       if (currentDay >= maxDailyDecisions) {
         environment.terminateTechnical(
@@ -1033,6 +1044,7 @@ async function runCompletionAssistedEpisode(
               dailyPlanOptions,
               signal,
             }),
+            config.signal,
           ));
           providerWaitMs += Math.max(0, clock.now() - requestStartedAt);
           selectionResponseCount++;
@@ -1139,6 +1151,7 @@ async function runCompletionAssistedEpisode(
           break;
         } catch (error: unknown) {
           providerWaitMs += Math.max(0, clock.now() - requestStartedAt);
+          config.signal?.throwIfAborted();
           if (!(error instanceof DriverTimeoutError)
             && !(error instanceof DirectProviderRequestError)) {
             throw error;
@@ -1208,7 +1221,7 @@ async function runCompletionAssistedEpisode(
               : {}),
           });
           if (finalFailureKind === "transient") {
-            await waitForBackoff(backoffMs, clock.sleep);
+            await abortable(waitForBackoff(backoffMs, clock.sleep), config.signal);
             providerWaitMs += backoffMs;
             transientRetryIndex++;
           }
@@ -1270,6 +1283,7 @@ async function runCompletionAssistedEpisode(
       }
     }
   } catch (error: unknown) {
+    config.signal?.throwIfAborted();
     diagnostic = error instanceof DriverTimeoutError ? error.category : "driver_threw";
     const evidence = error instanceof DriverTimeoutError
       ? config.driver.recordExternalDecisionFailure?.(

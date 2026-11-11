@@ -37,6 +37,7 @@ import {
 } from "./completion-assisted.js";
 
 export interface MatchRunConfig {
+  readonly signal?: AbortSignal;
   readonly matchId: string;
   readonly seed: number;
   readonly scenario: ScenarioConfig;
@@ -303,9 +304,11 @@ function reliabilityAuditFor(
 }
 
 export async function runMatch(config: MatchRunConfig): Promise<MatchRunOutput> {
+  config.signal?.throwIfAborted();
   const executionMode = validateDrivers(config.drivers);
   const competitionAudit = competitionAuditFor(config, executionMode);
   const outputs = await Promise.all(config.drivers.map(driver => runEpisode({
+    ...(config.signal ? { signal: config.signal } : {}),
     matchId: config.matchId,
     seed: config.seed,
     scenario: config.scenario,

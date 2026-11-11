@@ -12,13 +12,11 @@ jobs:
         with:
           node-version-file: .node-version
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            web/package-lock.json
-            showcase/package-lock.json
-            showcase/web/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm run setup
       - run: npm test
+      - run: npm run build
       - run: npx playwright install --with-deps chromium
+      - run: npm run test:app-browser
       - run: npm run test:project-browser
       - run: npm run test:showcase-browser -- --fixture

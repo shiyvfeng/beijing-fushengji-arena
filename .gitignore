@@ -1,4 +1,5 @@
 node_modules/
+var/
 .DS_Store
 showcase/web/dist/
 showcase/release/

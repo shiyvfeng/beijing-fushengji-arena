@@ -3,6 +3,8 @@
   "version": "1.0.0",
   "description": "北京浮生记 - 五模型 Direct Arena Runner",
   "type": "module",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*", "web", "showcase", "showcase/web"],
   "main": "dist/arena-entry.js",
   "exports": {
     ".": "./dist/arena-entry.js",
@@ -15,13 +17,17 @@
     "beijing-fushengji-mcp": "dist/index.js"
   },
   "engines": {
-    "node": ">=22.18.0"
+    "node": ">=24.19.0"
   },
   "scripts": {
-    "build": "tsc",
-    "start": "node scripts/run-arena-direct.mjs --",
+    "build": "npm run build:engine && npm --workspace @arena/web run build",
+    "build:engine": "tsc",
+    "dev": "node scripts/dev.mjs",
+    "start": "node --env-file-if-exists=.env apps/server/src/index.mjs",
+    "test:server": "node --test tests/server/*.test.mjs",
+    "test:app-browser": "node scripts/test-app-browser.mjs",
     "setup": "node scripts/setup-project.mjs",
-    "test": "npm run test:arena && npm run test:showcase && npm run test:project",
+    "test": "npm run test:arena && npm run test:showcase && npm run test:project && npm run test:server",
     "test:project-browser": "node scripts/test-project-browser.mjs",
     "arena:run": "node scripts/run-project.mjs",
     "arena:view": "node scripts/view-project.mjs",
@@ -37,7 +43,7 @@
     "arena:browser:install": "playwright install chromium",
     "model:list": "node tools/model-list-query/query-models.mjs",
     "internal:build:arena": "node scripts/build-arena-demo.mjs",
-    "test:arena-core": "npm run build && node --test tests/core/*.test.mjs",
+    "test:arena-core": "npm run build:engine && node --test tests/core/*.test.mjs",
     "test:arena-web": "npm --prefix web test",
     "test:arena-browser": "node scripts/run-arena-browser-acceptance.mjs",
     "test:arena-browser:fixture": "node scripts/run-arena-browser-acceptance.mjs --fixture",

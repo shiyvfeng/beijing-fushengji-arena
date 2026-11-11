@@ -1,0 +1,15 @@
+services:
+  arena:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      ARENA_ADMIN_PASSWORD: ${ARENA_ADMIN_PASSWORD:?Set a password of at least 12 characters}
+      ARENA_ALLOWED_MODEL_HOSTS: ${ARENA_ALLOWED_MODEL_HOSTS:-}
+      ARENA_COOKIE_SECURE: ${ARENA_COOKIE_SECURE:-false}
+    volumes:
+      - arena-data:/data
+    stop_grace_period: 15s
+volumes:
+  arena-data:

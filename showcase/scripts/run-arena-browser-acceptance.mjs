@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import {
   existsSync,
@@ -20,7 +21,8 @@ import { generateReplayEnrichment } from "../web/src/enrichment.ts";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const replayBuilderPath = join(root, "scripts", "build-arena-replay.mjs");
-const playwrightCliPath = join(root, "node_modules", "@playwright", "test", "cli.js");
+const playwrightPackagePath = createRequire(import.meta.url).resolve("@playwright/test/package.json");
+const playwrightCliPath = join(dirname(playwrightPackagePath), "cli.js");
 const fixtureModulePath = join(root, "web", "tests", "fixtures", "core-replay.ts");
 const supportedNodeMajors = new Set([22, 24, 26]);
 const shaPattern = /^sha256:[0-9a-f]{64}$/u;
@@ -320,7 +322,7 @@ async function main() {
     status: "failed",
     toolchain: {
       node: process.version,
-      playwright: JSON.parse(readFileSync(join(root, "node_modules", "@playwright", "test", "package.json"), "utf8")).version,
+      playwright: JSON.parse(readFileSync(playwrightPackagePath, "utf8")).version,
       chromium: "unavailable",
     },
     source: null,

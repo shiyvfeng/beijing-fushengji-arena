@@ -23,7 +23,7 @@ for (const credentialName of [
   delete buildEnvironment[credentialName];
 }
 
-const build = spawnSync("npm", ["run", "build"], {
+const build = spawnSync("npm", ["run", "build:engine"], {
   cwd: root,
   env: buildEnvironment,
   stdio: "inherit",

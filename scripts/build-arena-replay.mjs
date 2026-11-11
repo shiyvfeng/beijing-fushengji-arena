@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { accessSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
@@ -191,7 +192,7 @@ function main() {
   const args = rawArgs[0] === "--" ? rawArgs.slice(1) : rawArgs;
   const { inputPath, outputPath, allowInternalScripted } = parseArgs(args);
   if (inputPath === outputPath) throw new Error("Replay JSON 与 HTML 输出路径不能相同");
-  accessSync(join(webRoot, "node_modules", ".bin", "tsc"));
+  accessSync(createRequire(join(webRoot, "package.json")).resolve("typescript/bin/tsc"));
   const replay = JSON.parse(readFileSync(inputPath, "utf8"));
   validateReplay(replay, allowInternalScripted);
   const env = sanitizedEnvironment();

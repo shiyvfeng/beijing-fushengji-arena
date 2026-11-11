@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { createServer } from 'node:http';
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, cpSync, realpathSync, statSync, rmSync } from 'node:fs';
-import { extname, join, resolve, sep } from 'node:path';
+import { dirname, extname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { validateReplay, containsPotentialSecret, sanitizedEnvironment } from '../showcase/scripts/build-arena-replay.mjs';
 import { adaptCoreMatchReplay } from '../showcase/web/src/replay-adapter.ts';
@@ -30,7 +31,8 @@ export function buildSite(input, enrichmentPath) {
   // Vite 构建不得继承本机额外的 VITE_* 或其他构建模式。
   for (const key of Object.keys(env)) if (key.startsWith('VITE_') || key.startsWith('ARENA_BUILD_')) delete env[key];
   env.ARENA_BUILD_SESSION = '1';
-  const build = spawnSync(process.execPath, [join(web, 'node_modules/vite/bin/vite.js'), 'build', '--outDir', temporary], {
+  const vite = join(dirname(createRequire(join(web, 'package.json')).resolve('vite/package.json')), 'bin/vite.js');
+  const build = spawnSync(process.execPath, [vite, 'build', '--outDir', temporary], {
     cwd: web, env, stdio: 'inherit',
   });
   if (build.error) throw build.error;
