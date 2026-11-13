@@ -12,9 +12,15 @@
 
 ### 比赛回放
 
-按天查看五个模型的行动、市场价格、公共事件和资产排名。下图使用仓库中的 Gold 1 历史样本（Completion-Assisted 轨道）。
+按天查看五个模型的行动、市场价格、公共事件和资产排名。以下截图展示 Gold 1 历史样本（Completion-Assisted 轨道）的独立回放页面。
 
-![Gold 1 比赛回放：五模型舞台、市场价格、资产排名与时间线](docs/screenshots/gold1-replay.png)
+第 21 天：五模型同场，查看市场变化、实时排名与行动记录。
+
+![Gold 1 第 21 天比赛回放：五模型舞台、市场价格、实时排名与时间线](docs/screenshots/gold1-replay-day21.jpg)
+
+精选高光：回顾 DeepSeek 第 32 天反超登顶的交易，并查看对应的事实记录。
+
+![Gold 1 精选高光：DeepSeek 交易反超登顶及事实说明](docs/screenshots/gold1-replay-highlight.jpg)
 
 <details>
 <summary>查看更多：模型管理与结果分析</summary>
@@ -33,7 +39,7 @@
 
 </details>
 
-截图采集于 2026-11-11，来自实际运行的 Web 应用。
+任务中心、模型管理和结果分析截图采集于 2026-11-11；比赛回放截图展示历史比赛与精选高光。
 
 ## 快速开始
 
